@@ -1,16 +1,4 @@
-Solar Harmonics Console — Interactive Solar System Simulator (v1.0)
-
-Visual sizes: planets & Sun render with more realistic relative proportions
-
-(kept orbits/physics unchanged). Each planet has a per‑planet "Visual Size"
-
-slider (0–100% extra) that persists while running and affects only rendering.
-
-• Angle control fixed: choose Absolute frame OR Prograde‑relative (default).
- 
- • Reset visual sizes: one-click reset of all per‑planet visual scales.
-
- Still sandbox‑safe: no network/wallet calls; pure client canvas.
+Solar Harmonics Console — Interactive Solar System Simulator (v1.0) is a real-time, physics-driven orbital sandbox that brings our solar neighborhood to life. Built on Newtonian gravity with adjustable parameters, it lets you speed up or slow down time, alter planetary masses, apply instantaneous or continuous thrust, and experiment with orbital engineering scenarios. The simulation features visually scaled planets for clarity, dynamic Kuiper and asteroid belts, and intuitive controls for tweaking celestial mechanics — making it both a playful educational tool and a platform for advanced solar system experimentation.
  
  
 <img width="1597" height="871" alt="SHC1" src="https://github.com/user-attachments/assets/10a9a958-07dd-4ed9-b1b3-e47df75757c3" />
