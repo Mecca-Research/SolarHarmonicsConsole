@@ -1,22 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
-/**
- * Solar Harmonics Console — Interactive N‑Body Simulator (v1.5)
- * ---------------------------------------------------------------------------
- * What's new in v1.5 (requested tweaks):
- *  • Visual sizes: planets & Sun render with more realistic relative proportions
- *    (kept orbits/physics unchanged). Each planet has a per‑planet "Visual Size"
- *    slider (0–100% extra) that persists while running and affects only rendering.
- *  • Angle control fixed: choose Absolute frame OR Prograde‑relative (default).
- *    Angle now clearly affects both Impulse and Burn.
- *  • Burn actually works: continuous Δv is applied during integration; a
- *    progress bar + remaining time shows in each planet card while burning.
- *  • Reset visual sizes: one-click reset of all per‑planet visual scales.
- *  • Minor stability: removed logical assignment (compat), safer trails init.
- *
- * Still sandbox‑safe: no network/wallet calls; pure client canvas.
- */
-
 // ==================== Constants ====================
 const G = 6.67430e-11;           // m^3 kg^-1 s^-2
 const MSUN = 1.98847e30;         // kg
