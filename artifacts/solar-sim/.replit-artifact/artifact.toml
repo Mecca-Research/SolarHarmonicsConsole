@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Solar Harmonics Console"
+version = "1.0.0"
+id = "artifacts/solar-sim"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+localPort = 18780
+name = "web"
+paths = ["/"]
+
+[services.development]
+run = "pnpm --filter @workspace/solar-sim run dev"
+
+[services.env]
+PORT = "18780"
+BASE_PATH = "/"
+
+[services.production]
+build = ["pnpm", "--filter", "@workspace/solar-sim", "run", "build"]
+publicDir = "artifacts/solar-sim/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
