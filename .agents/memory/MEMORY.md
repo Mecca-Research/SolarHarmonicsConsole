@@ -1,0 +1,1 @@
+- [Solar-sim planet rendering](solar-sim-textures.md) — procedural vs CDN maps, sampling user photos into equirectangular textures, ring proportions & orientation (obliquity tilt), dimming unlit outer planets.
