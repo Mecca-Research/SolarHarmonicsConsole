@@ -25,6 +25,156 @@ const CDN_TEX_URLS: Record<string, string[]> = {
 
 const OUTER_PLANETS = new Set(['Jupiter', 'Saturn', 'Uranus', 'Neptune', 'Pluto']);
 
+const PLANET_NAMES = ["Mercury","Venus","Earth","Mars","Jupiter","Saturn","Uranus","Neptune","Pluto"] as const;
+type P = typeof PLANET_NAMES[number];
+type BodyName = P | 'Sun';
+
+type FocusState = {
+  name: BodyName;
+  obj: THREE.Object3D;
+  dist: number; minDist: number; maxDist: number;
+  pitch: number; yaw: number;
+  spin: number; // rad/s about the body's own (possibly tilted) axis while observed
+};
+
+const BODY_INFO: Record<BodyName, {kind:string; blurb:string; stats:[string,string][]}> = {
+  Sun: {
+    kind: 'G2V Main-Sequence Star',
+    blurb: 'The star at the heart of our solar system, holding 99.86% of its total mass. A churning ball of hydrogen plasma powered by nuclear fusion, the Sun converts about 4 million tonnes of matter into energy every second — the light that drives weather, ocean currents, and photosynthesis on Earth.',
+    stats: [
+      ['Diameter', '1,392,700 km (109 × Earth)'],
+      ['Mass', '1.99 × 10³⁰ kg (333,000 × Earth)'],
+      ['Surface temp', '5,505 °C'],
+      ['Core temp', '~15,000,000 °C'],
+      ['Rotation period', '~25.4 days (equator)'],
+      ['Composition', '≈73% hydrogen, 25% helium'],
+      ['Age', '~4.6 billion years'],
+    ],
+  },
+  Mercury: {
+    kind: 'Terrestrial Planet',
+    blurb: 'The smallest planet and the closest to the Sun, Mercury is a cratered, airless world that looks much like our Moon. With almost no atmosphere to trap heat, it endures the most extreme temperature swings in the solar system — scorching days and frigid nights.',
+    stats: [
+      ['Diameter', '4,879 km'],
+      ['Mass', '3.30 × 10²³ kg'],
+      ['Distance from Sun', '57.9 M km (0.39 AU)'],
+      ['Year length', '88 Earth days'],
+      ['Day (rotation)', '58.6 Earth days'],
+      ['Surface temp', '−173 to 427 °C'],
+      ['Moons', '0'],
+    ],
+  },
+  Venus: {
+    kind: 'Terrestrial Planet',
+    blurb: 'Venus is Earth’s hostile twin — nearly the same size, but wrapped in a crushing carbon-dioxide atmosphere topped with clouds of sulfuric acid. A runaway greenhouse effect makes it the hottest planet, and it spins backwards so slowly that its day outlasts its year.',
+    stats: [
+      ['Diameter', '12,104 km'],
+      ['Mass', '4.87 × 10²⁴ kg'],
+      ['Distance from Sun', '108.2 M km (0.72 AU)'],
+      ['Year length', '224.7 Earth days'],
+      ['Day (rotation)', '243 Earth days (retrograde)'],
+      ['Surface temp', '464 °C (hottest planet)'],
+      ['Surface pressure', '92 × Earth'],
+      ['Moons', '0'],
+    ],
+  },
+  Earth: {
+    kind: 'Terrestrial Planet',
+    blurb: 'Our home — the only world known to harbor life. Liquid water covers 71% of its surface, a global magnetic field and thick atmosphere shield it from radiation, and plate tectonics continually resurface it. Its large Moon steadies the axial tilt that gives us stable seasons.',
+    stats: [
+      ['Diameter', '12,742 km'],
+      ['Mass', '5.97 × 10²⁴ kg'],
+      ['Distance from Sun', '149.6 M km (1.00 AU)'],
+      ['Year length', '365.25 days'],
+      ['Day (rotation)', '23.9 hours'],
+      ['Average temp', '15 °C'],
+      ['Axial tilt', '23.4°'],
+      ['Moons', '1 (the Moon)'],
+    ],
+  },
+  Mars: {
+    kind: 'Terrestrial Planet',
+    blurb: 'The Red Planet owes its color to iron-oxide dust. Mars hosts the solar system’s tallest volcano, Olympus Mons, and a canyon system that would stretch across the United States. Dry riverbeds and minerals show it was once warm and wet — the prime target in the search for past life.',
+    stats: [
+      ['Diameter', '6,779 km'],
+      ['Mass', '6.42 × 10²³ kg'],
+      ['Distance from Sun', '227.9 M km (1.52 AU)'],
+      ['Year length', '687 Earth days'],
+      ['Day (rotation)', '24.6 hours'],
+      ['Average temp', '−63 °C'],
+      ['Moons', '2 (Phobos & Deimos)'],
+    ],
+  },
+  Jupiter: {
+    kind: 'Gas Giant',
+    blurb: 'The giant of the solar system — more than twice as massive as all the other planets combined. Its banded clouds churn with storms, including the Great Red Spot, a tempest wider than Earth that has raged for centuries. Its huge family of moons is a miniature planetary system.',
+    stats: [
+      ['Diameter', '139,820 km (11 × Earth)'],
+      ['Mass', '1.90 × 10²⁷ kg (318 × Earth)'],
+      ['Distance from Sun', '778.5 M km (5.20 AU)'],
+      ['Year length', '11.9 Earth years'],
+      ['Day (rotation)', '9.9 hours (fastest)'],
+      ['Cloud-top temp', '−108 °C'],
+      ['Moons', '95 known'],
+    ],
+  },
+  Saturn: {
+    kind: 'Gas Giant',
+    blurb: 'The jewel of the solar system, ringed by billions of ice fragments spanning some 282,000 km yet only tens of meters thick. Saturn is the least dense planet — lighter than water — and its moon family includes Titan, the only moon with a thick atmosphere.',
+    stats: [
+      ['Diameter', '116,460 km (9.4 × Earth)'],
+      ['Mass', '5.68 × 10²⁶ kg (95 × Earth)'],
+      ['Distance from Sun', '1.43 B km (9.54 AU)'],
+      ['Year length', '29.4 Earth years'],
+      ['Day (rotation)', '10.7 hours'],
+      ['Cloud-top temp', '−139 °C'],
+      ['Ring span', '~282,000 km'],
+      ['Moons', '274 known (most of any planet)'],
+    ],
+  },
+  Uranus: {
+    kind: 'Ice Giant',
+    blurb: 'Uranus rolls around the Sun on its side — tipped almost 98°, likely by an ancient giant impact — so its poles take turns facing the Sun for 42 years at a time. Methane in its atmosphere gives it a serene teal color, and it has the coldest atmosphere of any planet.',
+    stats: [
+      ['Diameter', '50,724 km (4 × Earth)'],
+      ['Mass', '8.68 × 10²⁵ kg (14.5 × Earth)'],
+      ['Distance from Sun', '2.87 B km (19.2 AU)'],
+      ['Year length', '84 Earth years'],
+      ['Day (rotation)', '17.2 hours (retrograde)'],
+      ['Cloud-top temp', '−197 °C (coldest atmosphere)'],
+      ['Axial tilt', '97.8°'],
+      ['Moons', '28 known'],
+    ],
+  },
+  Neptune: {
+    kind: 'Ice Giant',
+    blurb: 'The most distant planet, a deep cobalt world discovered in 1846 by mathematics before it was seen through a telescope. Despite receiving the least sunlight, Neptune hosts the fastest winds in the solar system — supersonic jets reaching 2,100 km/h.',
+    stats: [
+      ['Diameter', '49,244 km (3.9 × Earth)'],
+      ['Mass', '1.02 × 10²⁶ kg (17 × Earth)'],
+      ['Distance from Sun', '4.50 B km (30.1 AU)'],
+      ['Year length', '164.8 Earth years'],
+      ['Day (rotation)', '16.1 hours'],
+      ['Cloud-top temp', '−201 °C'],
+      ['Winds', 'up to 2,100 km/h (fastest)'],
+      ['Moons', '16 known'],
+    ],
+  },
+  Pluto: {
+    kind: 'Dwarf Planet',
+    blurb: 'The king of the Kuiper Belt, demoted from full planethood in 2006 but no less fascinating. New Horizons revealed a world with a vast heart-shaped nitrogen glacier, blue atmospheric haze, and mountains of water ice. Its moon Charon is so large the two orbit like a double world.',
+    stats: [
+      ['Diameter', '2,377 km (0.19 × Earth)'],
+      ['Mass', '1.31 × 10²² kg'],
+      ['Distance from Sun', '5.9 B km avg (39.5 AU)'],
+      ['Year length', '248 Earth years'],
+      ['Day (rotation)', '6.4 Earth days (retrograde)'],
+      ['Surface temp', '−229 °C'],
+      ['Moons', '5 (incl. Charon)'],
+    ],
+  },
+};
+
 const EARTH_NIGHT_URL  = `${GLOBE_CDN}/earth-night.jpg`;
 const EARTH_WATER_URL  = `${GLOBE_CDN}/earth-water.png`;
 const EARTH_TOPO_URL   = `${GLOBE_CDN}/earth-topology.png`;
@@ -137,9 +287,11 @@ export default function SolarHarmonics3D(){
   const [kuiperCount,setKuiperCount]=useState(60000); const kuiCRef=useRef(kuiperCount); useEffect(()=>{kuiCRef.current=kuiperCount;},[kuiperCount]);
   const yawRef=useRef(-Math.PI/4), pitchRef=useRef(0.5), distRef=useRef(620);
 
-  const PLANETS=["Mercury","Venus","Earth","Mars","Jupiter","Saturn","Uranus","Neptune","Pluto"] as const; type P=typeof PLANETS[number];
+  const PLANETS=PLANET_NAMES;
   const [sel,setSel]=useState<P>("Earth"); const [spd,setSpd]=useState(1.0); const [tilt,setTilt]=useState(0); const lastRef=useRef<P|null>(null);
   const cmdsRef=useRef<any>({});
+  const [focused,setFocused]=useState<BodyName|null>(null);
+  const focusRef=useRef<FocusState|null>(null);
 
   const [webglError, setWebglError] = useState(false);
 
@@ -244,7 +396,7 @@ export default function SolarHarmonics3D(){
     const sunLight=new THREE.PointLight(0xfff8e7, 2.0, 0, 2); scene.add(sunLight);
     const rPeriMerc = ELS.Mercury.a*(1-ELS.Mercury.e)*AU2U;
     const SUN_VIS_R = Math.max(2.5, Math.min(rPeriMerc*0.60, AU2U*0.80));
-    const sunGeom=new THREE.SphereGeometry(SUN_VIS_R,64,48); const sunMat=makeSunMat(); const sun=new THREE.Mesh(sunGeom,sunMat); scene.add(sun);
+    const sunGeom=new THREE.SphereGeometry(SUN_VIS_R,64,48); const sunMat=makeSunMat(); const sun=new THREE.Mesh(sunGeom,sunMat); sun.name='Sun'; scene.add(sun);
     const sunGlow=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex(),color:0xffffff,blending:THREE.AdditiveBlending,transparent:true,depthWrite:false})); sunGlow.scale.setScalar(rPeriMerc*0.90); scene.add(sunGlow);
 
     const flareTex=mkFlareTex(); const flareGroup=new THREE.Group(); scene.add(flareGroup);
@@ -650,29 +802,151 @@ export default function SolarHarmonics3D(){
 
     (function(){const N=2200, geo=new THREE.BufferGeometry(), pos=new Float32Array(N*3); for(let i=0;i<N;i++){const R=5000,u=Math.random(),v=Math.random(),th=2*Math.PI*u, ph=Math.acos(2*v-1); pos[i*3+0]=R*Math.sin(ph)*Math.cos(th); pos[i*3+1]=R*Math.sin(ph)*Math.sin(th); pos[i*3+2]=R*Math.cos(ph);} geo.setAttribute('position',new THREE.BufferAttribute(pos,3)); const s=new THREE.Points(geo,new THREE.PointsMaterial({map:dotTex,size:1.5,transparent:true,depthWrite:false,color:0xffffff})); scene.add(s); bag.push(()=>{geo.dispose(); (s.material as THREE.Material).dispose();})})();
 
-    let drag=false,lx=0,ly=0; const md=(e:MouseEvent)=>{if(e.button!==0)return; drag=true; lx=e.clientX; ly=e.clientY}; const mm=(e:MouseEvent)=>{if(!drag)return; const dx=e.clientX-lx, dy=e.clientY-ly; lx=e.clientX; ly=e.clientY; yawRef.current-=dx*.005; pitchRef.current=clamp(pitchRef.current+dy*.005,0,1.52); distRef.current=clamp(distRef.current*(1+dy*.002),50,30000)}; const onUp=()=>{drag=false}; const wheel=(e:WheelEvent)=>{distRef.current=clamp(distRef.current*(e.deltaY>0?1.1:0.9),50,30000)};
+    let drag=false,lx=0,ly=0; const md=(e:MouseEvent)=>{if(e.button!==0)return; drag=true; lx=e.clientX; ly=e.clientY}; const mm=(e:MouseEvent)=>{if(!drag)return; const dx=e.clientX-lx, dy=e.clientY-ly; lx=e.clientX; ly=e.clientY; const f=focusRef.current; if(f){f.yaw-=dx*.005; f.pitch=clamp(f.pitch+dy*.005,-1.35,1.35);}else{yawRef.current-=dx*.005; pitchRef.current=clamp(pitchRef.current+dy*.005,0,1.52); distRef.current=clamp(distRef.current*(1+dy*.002),50,30000);}}; const onUp=()=>{drag=false}; const wheel=(e:WheelEvent)=>{const f=focusRef.current; if(f){f.dist=clamp(f.dist*(e.deltaY>0?1.1:0.9),f.minDist,f.maxDist);}else{distRef.current=clamp(distRef.current*(e.deltaY>0?1.1:0.9),50,30000);}};
     renderer.domElement.addEventListener('mousedown',md); window.addEventListener('mousemove',mm); window.addEventListener('mouseup',onUp); renderer.domElement.addEventListener('wheel',wheel as any,{passive:true} as any);
 
-    const sysMaxR=()=>{const pMax=Math.max(...PLANETS.map(p=>elements[p].a*(1+elements[p].e))); const kMax=kui?Math.max(...kui.a)*1.05:0; return Math.max(pMax,kMax)};
-    cmdsRef.current.fitInner=()=>{const R=AU2U*4.0; const f=cam.fov*Math.PI/180; distRef.current=clamp(R/Math.tan(f/2)*1.25,80,10000); pitchRef.current=.9};
-    cmdsRef.current.fitFull=()=>{const R=sysMaxR(); const f=cam.fov*Math.PI/180; distRef.current=clamp(R/Math.tan(f/2)*1.25,120,30000); pitchRef.current=.9};
-    cmdsRef.current.topDown=()=>{pitchRef.current=1.45}; cmdsRef.current.iso=()=>{pitchRef.current=.5; yawRef.current=-Math.PI/4};
+    // ---- Double-click focus: fly to a body and observe it like a satellite ----
+    const BODIES: BodyName[] = ['Sun', ...PLANETS];
+    const bodyObj = (n:BodyName): THREE.Object3D => n==='Sun' ? sun : mesh[n];
+    const bodyRadius = (n:BodyName) => n==='Sun' ? SUN_VIS_R : R[n];
+    const ownerOf = (obj:THREE.Object3D|null): BodyName|null => { let o=obj, n:BodyName|null=null; while(o && !n){ if((BODIES as string[]).includes(o.name)) n=o.name as BodyName; o=o.parent; } return n; };
+    // Closest zoom must stay radially outside ring annuli (Saturn rings reach 2.27R, Uranus 2.02R).
+    const MIN_ZOOM: Partial<Record<BodyName,number>> = { Saturn: 2.4, Uranus: 2.15 };
 
-    const apply=(p:P,f:number,tiltDeg:number)=>{const el=elements[p]; const E=solveE(el.M,el.e), th=Math.atan2(Math.sqrt(1-el.e*el.e)*Math.sin(E),Math.cos(E)-el.e); const r=el.a*(1-el.e*Math.cos(E)); const pOld=el.a*(1-el.e*el.e), hOld=Math.sqrt(mu*pOld), vtOld=hOld/r, vrOld=(mu/hOld)*el.e*Math.sin(th); const vtNew=clamp(vtOld*clamp(f,.1,10),.05*vtOld,10*vtOld), vrNew=vrOld; let eps=.5*(vtNew*vtNew+vrNew*vrNew)-mu/r; if(eps>=0) eps=-1e-9; let aNew=-mu/(2*eps); const hNew=r*vtNew; let e2=1-(hNew*hNew)/(mu*aNew); e2=clamp(e2,0,0.999999); const eNew=Math.sqrt(e2); const rmax=aNew*(1+eNew); if(rmax>sysMaxR()*1.2){const s=sysMaxR()*1.2/rmax; aNew*=s;} const pNew=aNew*(1-e2); let cosf=(pNew/r-1)/eNew; if(eNew<1e-8||!isFinite(cosf)) cosf=Math.cos(th); cosf=clamp(cosf,-1,1); const sinf=sgn(vrNew)*Math.sqrt(Math.max(0,1-cosf*cosf)); const fNew=Math.atan2(sinf,cosf); const beta=Math.sqrt((1-eNew)/(1+eNew)); const Enew=2*Math.atan(beta*Math.tan(fNew/2)); const Mnew=wrap(Enew - eNew*Math.sin(Enew)); elements[p]={a:aNew,e:eNew,i:rad(tiltDeg),M:Mnew}; mkLine(p); mesh[p].position.copy(posOf(p)); lastRef.current=p};
-    cmdsRef.current.apply=apply; cmdsRef.current.resetLast=()=>{const p=lastRef.current; if(!p) return; elements[p]={...base[p]}; mkLine(p); mesh[p].position.copy(posOf(p))}; cmdsRef.current.fullReset=()=>{for(const p of PLANETS){elements[p]={...base[p]}; mkLine(p); mesh[p].position.copy(posOf(p))}};
+    // Smoothed camera state: glide eases from a snapshot to the live desired pose,
+    // so arrival is exact even while the target body keeps moving on its orbit.
+    const camLookSm = new THREE.Vector3(0,0,0);
+    const glide = { active:false, t0:0, dur:2200, fromPos:new THREE.Vector3(), fromLook:new THREE.Vector3(), anchor:null as THREE.Object3D|null, fromOff:new THREE.Vector3(), fromLookOff:new THREE.Vector3() };
+    const startGlide = () => {
+      glide.active=true; glide.t0=performance.now();
+      glide.fromPos.copy(cam.position); glide.fromLook.copy(camLookSm);
+      // When flying toward a body, glide in that body's reference frame: at high sim
+      // speeds the body sweeps its orbit far faster than the glide, and a world-space
+      // path toward a live target would whip the camera around the system.
+      const f=focusRef.current; glide.anchor = f ? f.obj : null;
+      if(glide.anchor){
+        const ap=new THREE.Vector3(); glide.anchor.getWorldPosition(ap);
+        glide.fromOff.copy(cam.position).sub(ap);
+        glide.fromLookOff.copy(camLookSm).sub(ap);
+      }
+    };
+
+    const focusBody = (name:BodyName) => {
+      const obj = bodyObj(name); const radius = bodyRadius(name);
+      const wp = new THREE.Vector3(); obj.getWorldPosition(wp);
+      // Start the satellite orbit from the camera's current bearing so the fly-in is short.
+      const yaw0 = Math.atan2(cam.position.x - wp.x, cam.position.z - wp.z);
+      focusRef.current = { name, obj, dist: radius*3.6, minDist: radius*(MIN_ZOOM[name] ?? 1.45), maxDist: radius*30, pitch: 0.22, yaw: yaw0, spin: name==='Sun'?0.05:0.15 };
+      startGlide();
+      setFocused(name);
+    };
+    // Always reconcile the React state: if the ref and state ever desync (e.g. an effect
+    // re-run in dev), Back/Esc must still dismiss the panel; only glide when leaving focus.
+    const unfocus = () => { const had=focusRef.current; focusRef.current=null; if(had) startGlide(); setFocused(null); };
+    cmdsRef.current.focusBody = focusBody; cmdsRef.current.unfocus = unfocus;
+
+    const raycaster = new THREE.Raycaster();
+    const pickNdc = new THREE.Vector2(); const pickWp = new THREE.Vector3(); const pickRel = new THREE.Vector3(); const camFwd = new THREE.Vector3();
+    const onDblClick = (e:MouseEvent) => {
+      const rect = renderer.domElement.getBoundingClientRect();
+      const px = e.clientX-rect.left, py = e.clientY-rect.top;
+      pickNdc.set((px/rect.width)*2-1, -(py/rect.height)*2+1);
+      raycaster.setFromCamera(pickNdc, cam);
+      let name: BodyName|null = null;
+      for (const h of raycaster.intersectObjects(BODIES.map(bodyObj), true)) {
+        name = ownerOf(h.object);
+        if (name) break;
+      }
+      if (!name) {
+        // Forgiving pick: bodies are tiny from the overview, so accept the nearest
+        // body center within a small screen-space radius of the click.
+        cam.getWorldDirection(camFwd);
+        let best: BodyName|null = null, bestD = 28;
+        for (const b of BODIES) {
+          bodyObj(b).getWorldPosition(pickWp);
+          if (pickRel.subVectors(pickWp, cam.position).dot(camFwd) <= 0) continue; // behind camera
+          pickWp.project(cam);
+          const sx=(pickWp.x*0.5+0.5)*rect.width, sy=(-pickWp.y*0.5+0.5)*rect.height;
+          const dd=Math.hypot(sx-px, sy-py);
+          if (dd<bestD) { bestD=dd; best=b; }
+        }
+        if (best) {
+          // Don't pick a body hidden behind another one (e.g. the Sun behind the
+          // focused planet): the ray to its center must reach it first.
+          bodyObj(best).getWorldPosition(pickWp);
+          raycaster.set(cam.position, pickRel.subVectors(pickWp, cam.position).normalize());
+          const first = raycaster.intersectObjects(BODIES.map(bodyObj), true)[0];
+          const owner = first ? ownerOf(first.object) : null;
+          if (!owner || owner === best) name = best;
+        }
+      }
+      if (name && focusRef.current?.name !== name) focusBody(name);
+    };
+    renderer.domElement.addEventListener('dblclick', onDblClick);
+    const onKeyDown = (e:KeyboardEvent) => { if(e.key==='Escape') unfocus(); };
+    window.addEventListener('keydown', onKeyDown);
+    if ((import.meta as any).env?.DEV) { (window as any).__solar = cmdsRef.current; }
+
+    const sysMaxR=()=>{const pMax=Math.max(...PLANETS.map(p=>elements[p].a*(1+elements[p].e))); const kMax=kui?Math.max(...kui.a)*1.05:0; return Math.max(pMax,kMax)};
+    cmdsRef.current.fitInner=()=>{unfocus(); const R=AU2U*4.0; const f=cam.fov*Math.PI/180; distRef.current=clamp(R/Math.tan(f/2)*1.25,80,10000); pitchRef.current=.9};
+    cmdsRef.current.fitFull=()=>{unfocus(); const R=sysMaxR(); const f=cam.fov*Math.PI/180; distRef.current=clamp(R/Math.tan(f/2)*1.25,120,30000); pitchRef.current=.9};
+    cmdsRef.current.topDown=()=>{unfocus(); pitchRef.current=1.45}; cmdsRef.current.iso=()=>{unfocus(); pitchRef.current=.5; yawRef.current=-Math.PI/4};
+
+    const apply=(p:P,f:number,tiltDeg:number)=>{const el=elements[p]; const E=solveE(el.M,el.e), th=Math.atan2(Math.sqrt(1-el.e*el.e)*Math.sin(E),Math.cos(E)-el.e); const r=el.a*(1-el.e*Math.cos(E)); const pOld=el.a*(1-el.e*el.e), hOld=Math.sqrt(mu*pOld), vtOld=hOld/r, vrOld=(mu/hOld)*el.e*Math.sin(th); const vtNew=clamp(vtOld*clamp(f,.1,10),.05*vtOld,10*vtOld), vrNew=vrOld; let eps=.5*(vtNew*vtNew+vrNew*vrNew)-mu/r; if(eps>=0) eps=-1e-9; let aNew=-mu/(2*eps); const hNew=r*vtNew; let e2=1-(hNew*hNew)/(mu*aNew); e2=clamp(e2,0,0.999999); const eNew=Math.sqrt(e2); const rmax=aNew*(1+eNew); if(rmax>sysMaxR()*1.2){const s=sysMaxR()*1.2/rmax; aNew*=s;} const pNew=aNew*(1-e2); let cosf=(pNew/r-1)/eNew; if(eNew<1e-8||!isFinite(cosf)) cosf=Math.cos(th); cosf=clamp(cosf,-1,1); const sinf=sgn(vrNew)*Math.sqrt(Math.max(0,1-cosf*cosf)); const fNew=Math.atan2(sinf,cosf); const beta=Math.sqrt((1-eNew)/(1+eNew)); const Enew=2*Math.atan(beta*Math.tan(fNew/2)); const Mnew=wrap(Enew - eNew*Math.sin(Enew)); elements[p]={a:aNew,e:eNew,i:rad(tiltDeg),M:Mnew}; mkLine(p); mesh[p].position.copy(posOf(p)); lastRef.current=p; if(focusRef.current?.name===p) startGlide();};
+    cmdsRef.current.apply=apply; cmdsRef.current.resetLast=()=>{const p=lastRef.current; if(!p) return; elements[p]={...base[p]}; mkLine(p); mesh[p].position.copy(posOf(p)); if(focusRef.current?.name===p) startGlide();}; cmdsRef.current.fullReset=()=>{for(const p of PLANETS){elements[p]={...base[p]}; mkLine(p); mesh[p].position.copy(posOf(p))} if(focusRef.current) startGlide();};
 
     const advanceBelt=(B:Belt,d:number)=>{const pos=B.geo.getAttribute('position') as THREE.BufferAttribute; const arr=pos.array as Float32Array; const N=B.a.length; const heavy=N>40000; const CH=heavy?Math.max(8000,Math.ceil(N/12)):Math.max(12000,Math.ceil(N/6)); let s=B.cursor,e=Math.min(N,s+CH); for(let i=s;i<e;i++){const Mi=wrap(B.M[i]+B.n[i]*d); B.M[i]=Mi; const ei=B.e[i]; const f=approxTrue(Mi,ei); const r=B.a[i]*(1-ei*Math.cos(Mi)); const xp=r*Math.cos(f), yp=r*Math.sin(f); const si=Math.sin(B.inc[i]),ci=Math.cos(B.inc[i]); const idx=3*i; arr[idx]=xp; arr[idx+1]=yp*si; arr[idx+2]=yp*ci;} const off=s*3, cnt=(e-s)*3; const anyPos:any = pos as any; if (typeof anyPos.setUpdateRange === 'function'){ anyPos.setUpdateRange(off,cnt); } else { if (!anyPos.updateRange) anyPos.updateRange = {offset:0,count:-1}; anyPos.updateRange.offset = off; anyPos.updateRange.count = cnt; } pos.needsUpdate=true; B.cursor=(e===N)?0:e };
 
     const onResize=()=>{const W=root.clientWidth||window.innerWidth,H=root.clientHeight||window.innerHeight; renderer.setSize(W,H); cam.aspect=W/H; cam.updateProjectionMatrix()}; const ro=new ResizeObserver(onResize); ro.observe(root);
 
+    const desiredPos=new THREE.Vector3(), desiredLook=new THREE.Vector3(), glTmp=new THREE.Vector3(), glTmp2=new THREE.Vector3();
     let t0=performance.now(); const loop=()=>{const now=performance.now(), dt=Math.min(.25,(now-t0)/1000); t0=now; const d=dt*simDaysPerSecRef.current;
       for(const p of PLANETS){const el=elements[p]; const n=Math.sqrt(mu/Math.pow(el.a,3)); el.M=wrap(el.M+n*d); mesh[p].position.copy(posOf(p))}
       updateMoon(d);
       for(const m of simpleMoons){m.pivot.rotation.y+=m.angVel*d}
       advanceBelt(ast,d); advanceBelt(kui,d); advanceBelt(L4,d); advanceBelt(L5,d); advanceBelt(H1,d); advanceBelt(H2,d); advanceBelt(H3,d);
-      const r=distRef.current,yaw=yawRef.current,pitch=pitchRef.current;
-      cam.position.set(r*Math.cos(pitch)*Math.sin(yaw),r*Math.sin(pitch),r*Math.cos(pitch)*Math.cos(yaw));
-      cam.lookAt(0,0,0);
+      const focus=focusRef.current;
+      if(focus){
+        focus.yaw+=0.06*dt; // slow satellite drift around the body
+        // rotateY spins about the body's local (tilted) pole, so Uranus's rings don't wobble
+        focus.obj.rotateY(focus.spin*dt);
+        focus.obj.getWorldPosition(desiredLook);
+        desiredPos.set(
+          desiredLook.x + focus.dist*Math.cos(focus.pitch)*Math.sin(focus.yaw),
+          desiredLook.y + focus.dist*Math.sin(focus.pitch),
+          desiredLook.z + focus.dist*Math.cos(focus.pitch)*Math.cos(focus.yaw)
+        );
+      }else{
+        const r=distRef.current,yaw=yawRef.current,pitch=pitchRef.current;
+        desiredPos.set(r*Math.cos(pitch)*Math.sin(yaw),r*Math.sin(pitch),r*Math.cos(pitch)*Math.cos(yaw));
+        desiredLook.set(0,0,0);
+      }
+      if(glide.active){
+        const g=clamp((now-glide.t0)/glide.dur,0,1);
+        const s=g*g*g*(g*(g*6-15)+10); // smootherstep ease
+        if(glide.anchor && focus && glide.anchor===focus.obj){
+          // Body-frame glide: desiredLook is the body's live world position, so
+          // interpolate offsets from it and the body's own motion never whips the path.
+          glTmp.subVectors(desiredPos,desiredLook);
+          cam.position.lerpVectors(glide.fromOff,glTmp,s).add(desiredLook);
+          camLookSm.lerpVectors(glide.fromLookOff,glTmp2.set(0,0,0),s).add(desiredLook);
+        }else{
+          cam.position.lerpVectors(glide.fromPos,desiredPos,s);
+          camLookSm.lerpVectors(glide.fromLook,desiredLook,s);
+        }
+        // The straight-line path may pass through a body (e.g. the Sun when hopping
+        // across the system) — push the camera radially out of any sphere it enters.
+        for(const b of BODIES){
+          bodyObj(b).getWorldPosition(glTmp);
+          const rr=bodyRadius(b)*1.15, dd=cam.position.distanceTo(glTmp);
+          if(dd<rr && dd>1e-6) cam.position.sub(glTmp).multiplyScalar(rr/dd).add(glTmp);
+        }
+        if(g>=1) glide.active=false;
+      }else{
+        cam.position.copy(desiredPos);
+        camLookSm.copy(desiredLook);
+      }
+      cam.lookAt(camLookSm);
       sunLight.position.set(0,0,0);
       sunGlow.position.set(0,0,0);
 
@@ -694,7 +968,7 @@ export default function SolarHarmonics3D(){
 
     cmdsRef.current.rebuildBelts=()=>{const re=(B:Belt)=>{scene.remove(B.mesh); B.geo.dispose(); (B.mesh.material as THREE.Material).dispose()}; re(ast); re(kui); re(L4); re(L5); re(H1); re(H2); re(H3); ast=mkOrbitingBelt(astCRef.current,[2.1,3.3],0.12,2.5,0.9,()=>{const c=.68+Math.random()*.22;return [c,c,c]},0.58); kui=mkOrbitingBelt(kuiCRef.current,[42,48],0.10,5.5,1.4,()=>{const c=.78+Math.random()*.18;return [c*.65,c*.85,1.0]},0.72); const trojanTotal=Math.max(2000,Math.floor(astCRef.current*0.2)); L4=mkCoOrbital(Math.floor(trojanTotal/2),[4.9,5.5],+Math.PI/3,20,0x62f38e,1.0); L5=mkCoOrbital(Math.ceil(trojanTotal/2),[4.9,5.5],-Math.PI/3,20,0xff6b6b,1.0); const hildaTotal=Math.max(1000,Math.floor(astCRef.current*0.08)); H1=mkHilda(Math.floor(hildaTotal/3),+Math.PI/3); H2=mkHilda(Math.floor(hildaTotal/3),Math.PI); H3=mkHilda(hildaTotal-2*Math.floor(hildaTotal/3),-Math.PI/3)};
 
-    return ()=>{cancelAnimationFrame(rafRef.current); ro.disconnect(); renderer.domElement.removeEventListener('mousedown',md as any); window.removeEventListener('mousemove',mm as any); window.removeEventListener('mouseup',onUp as any); renderer.domElement.removeEventListener('wheel',wheel as any); root.removeChild(renderer.domElement); renderer.dispose(); scene.traverse((o:any)=>{o.geometry?.dispose?.(); const m=o.material; if(m){Array.isArray(m)?m.forEach((mm:any)=>mm.dispose?.()):m.dispose?.();}}); bag.forEach(f=>{try{f()}catch{}}) };
+    return ()=>{cancelAnimationFrame(rafRef.current); ro.disconnect(); renderer.domElement.removeEventListener('mousedown',md as any); window.removeEventListener('mousemove',mm as any); window.removeEventListener('mouseup',onUp as any); renderer.domElement.removeEventListener('wheel',wheel as any); renderer.domElement.removeEventListener('dblclick',onDblClick as any); window.removeEventListener('keydown',onKeyDown as any); if((window as any).__solar===cmdsRef.current) delete (window as any).__solar; focusRef.current=null; root.removeChild(renderer.domElement); renderer.dispose(); scene.traverse((o:any)=>{o.geometry?.dispose?.(); const m=o.material; if(m){Array.isArray(m)?m.forEach((mm:any)=>mm.dispose?.()):m.dispose?.();}}); bag.forEach(f=>{try{f()}catch{}}) };
 
     function glowTex(){const s=256,c=document.createElement('canvas');c.width=c.height=s;const x=c.getContext('2d')!,g=x.createRadialGradient(s/2,s/2,0,s/2,s/2,s/2);g.addColorStop(0,'rgba(255,200,120,.95)');g.addColorStop(.55,'rgba(255,140,50,.35)');g.addColorStop(1,'rgba(255,110,40,0)');x.fillStyle=g;x.fillRect(0,0,s,s);const t=track(new THREE.CanvasTexture(c));(t as any).colorSpace=THREE.SRGBColorSpace;(t as any).needsUpdate=true;return t}
     function mkFlareTex(){const s=128,c=document.createElement('canvas');c.width=c.height=s;const x=c.getContext('2d')!,g=x.createRadialGradient(s/2,s/2,0,s/2,s/2,s/2);g.addColorStop(0,'rgba(255,220,170,.95)');g.addColorStop(.35,'rgba(255,140,60,.55)');g.addColorStop(1,'rgba(255,140,60,0)');x.fillStyle=g;x.beginPath();x.ellipse(s/2,s/2,s*.48,s*.18,Math.PI/4,0,Math.PI*2);x.fill();const t=track(new THREE.CanvasTexture(c));(t as any).colorSpace=THREE.SRGBColorSpace;(t as any).needsUpdate=true;return t}
@@ -739,8 +1013,16 @@ export default function SolarHarmonics3D(){
 
   return (
     <div style={{width:'100%',height:'100vh',display:'grid',gridTemplateColumns:'1fr 420px',gap:8,background:'#000'}}>
-      <div ref={mountRef} style={{width:'100%',height:'100%'}}>
-        {webglError && <div style={{color:'#e5e7eb',display:'flex',alignItems:'center',justifyContent:'center',height:'100%',fontFamily:'system-ui',fontSize:18}}>WebGL is required to display the 3D simulation.</div>}
+      <div style={{position:'relative',width:'100%',height:'100%',overflow:'hidden'}}>
+        <div ref={mountRef} style={{width:'100%',height:'100%'}}>
+          {webglError && <div style={{color:'#e5e7eb',display:'flex',alignItems:'center',justifyContent:'center',height:'100%',fontFamily:'system-ui',fontSize:18}}>WebGL is required to display the 3D simulation.</div>}
+        </div>
+        {!webglError && !focused && (
+          <div style={{position:'absolute',left:16,bottom:14,color:'#cbd5e1',fontFamily:'system-ui,sans-serif',fontSize:12.5,background:'rgba(17,24,39,.65)',border:'1px solid #334155',borderRadius:999,padding:'6px 12px',pointerEvents:'none'}}>
+            Double-click the Sun or a planet for a close-up satellite view
+          </div>
+        )}
+        {!webglError && focused && <InfoPanel body={focused} onBack={()=>cmdsRef.current.unfocus?.()} />}
       </div>
       <div style={{color:'#e5e7eb',fontFamily:'system-ui,sans-serif',background:'rgba(17,24,39,.7)',border:'1px solid #334155',borderRadius:10,padding:12,height:'calc(100vh - 8px)',overflowY:'auto'}}>
         <div style={{fontWeight:700,marginBottom:8}}>🛠 Orbit Editor</div>
@@ -773,6 +1055,26 @@ export default function SolarHarmonics3D(){
           <div style={{opacity:.85,fontSize:12,marginTop:6}}>Trojans/Greeks ≈ <b>20%</b> of main belt • Hildas ≈ <b>8%</b> (auto‑scaled)</div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function InfoPanel({body,onBack}:{body:BodyName,onBack:()=>void}){
+  const info=BODY_INFO[body];
+  return (
+    <div style={{position:'absolute',top:16,left:16,width:340,maxWidth:'calc(100% - 32px)',maxHeight:'calc(100% - 32px)',overflowY:'auto',color:'#e5e7eb',fontFamily:'system-ui,sans-serif',background:'rgba(17,24,39,.85)',border:'1px solid #334155',borderRadius:12,padding:16,backdropFilter:'blur(6px)'}}>
+      <button onClick={onBack} style={{padding:'7px 12px',borderRadius:8,background:'#059669',border:'1px solid #10b981',color:'#fff',cursor:'pointer',fontWeight:600}}>← Back to Solar System</button>
+      <div style={{fontSize:26,fontWeight:800,marginTop:12,lineHeight:1.1}}>{body}</div>
+      <div style={{color:'#34d399',fontSize:11.5,fontWeight:700,letterSpacing:1.2,textTransform:'uppercase',marginTop:3,marginBottom:10}}>{info.kind}</div>
+      <p style={{fontSize:13,lineHeight:1.55,opacity:.92,margin:'0 0 12px'}}>{info.blurb}</p>
+      <div>
+        {info.stats.map(([k,v])=>(
+          <div key={k} style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',gap:12,padding:'6px 0',borderTop:'1px solid #273244',fontSize:12.5}}>
+            <span style={{opacity:.7,whiteSpace:'nowrap'}}>{k}</span><span style={{textAlign:'right',fontWeight:600}}>{v}</span>
+          </div>
+        ))}
+      </div>
+      <div style={{opacity:.6,fontSize:11.5,marginTop:10}}>Drag to orbit • Scroll to zoom • Esc to exit</div>
     </div>
   );
 }
