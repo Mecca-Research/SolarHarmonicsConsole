@@ -1,11 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
+import { NBodySim, oscFromState, sampleOrbit, G, EPOCH_UNIX_MS, type OscElements } from "./nbody";
 
 import earthTexUrl from '@assets/Earth_from_Space_1773586048704.jpg';
 import earthTexFallbackUrl from '@assets/Earth_30_year_comparison_pillars_1773586048704.jpg';
 
 const clamp = (x:number,a:number,b:number)=>Math.max(a,Math.min(b,x));
-const sgn = (x:number)=>x>=0?1:-1;
 const rad = (d:number)=>d*Math.PI/180;
 const lerp=(a:number,b:number,t:number)=>a+(b-a)*t;
 const randn=()=>{let u=0,v=0;while(u===0)u=Math.random();while(v===0)v=Math.random();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v)};
@@ -292,6 +292,7 @@ export default function SolarHarmonics3D(){
   const cmdsRef=useRef<any>({});
   const [focused,setFocused]=useState<BodyName|null>(null);
   const focusRef=useRef<FocusState|null>(null);
+  const dateHudRef=useRef<HTMLSpanElement|null>(null);
 
   const [webglError, setWebglError] = useState(false);
 
@@ -313,21 +314,31 @@ export default function SolarHarmonics3D(){
     const cam=new THREE.PerspectiveCamera(60,w/h,0.1,120000);
     (scene as any).userData._spinUpdates = [] as Array<(dt:number)=>void>;
 
-    const AU2U=30; const TE=365.25; const aE=AU2U*1.0; const mu=Math.pow((2*Math.PI)/TE,2)*Math.pow(aE,3);
+    // AU2U is the VISUAL scale only: physics runs in true units (AU / days /
+    // solar masses) inside NBodySim; rendering multiplies by AU2U at the end.
+    const AU2U=30; const TE=365.25; const aE=AU2U*1.0;
 
-    const ELS:Record<P,{a:number,e:number,i:number,M:number}>= {
-      Mercury:{a:0.3871,e:0.2056,i:rad(7.0), M:0.0},
-      Venus:{a:0.7233,e:0.0068,i:rad(3.4), M:0.6},
-      Earth:{a:1.0000,e:0.0167,i:rad(0.0), M:1.2},
-      Mars:{a:1.5237,e:0.0934,i:rad(1.8), M:1.8},
-      Jupiter:{a:5.2028,e:0.0489,i:rad(1.3), M:0.25},
-      Saturn:{a:9.5388,e:0.0565,i:rad(2.5), M:1.10},
-      Uranus:{a:19.1914,e:0.0457,i:rad(0.8), M:2.00},
-      Neptune:{a:30.0689,e:0.0113,i:rad(1.8), M:2.70},
-      Pluto:{a:39.482,e:0.2488,i:rad(17.0),M:0.00},
-    };
-    const elements:Record<P,{a:number,e:number,i:number,M:number}>={} as any; const base:typeof elements={} as any;
-    for(const k of PLANETS){const el=ELS[k]; elements[k]={a:el.a*AU2U,e:el.e,i:el.i,M:el.M}; base[k]={...elements[k]};}
+    // ---- N-body physics state: Sun + 9 planets under pairwise gravity ----
+    const sim = new NBodySim();
+    const IDX = {} as Record<BodyName, number>;
+    sim.bodies.forEach((b, i) => { IDX[b.name as BodyName] = i; });
+    const sunB = sim.bodies[IDX.Sun];
+    // Epoch snapshot (Sun-relative) so the orbit editor's resets can restore it.
+    type Vec6 = {x:number,y:number,z:number,vx:number,vy:number,vz:number};
+    const epochRel: Record<P, Vec6> = {} as any;
+    for (const p of PLANETS) {
+      const b = sim.bodies[IDX[p]];
+      epochRel[p] = { x:b.x-sunB.x, y:b.y-sunB.y, z:b.z-sunB.z, vx:b.vx-sunB.vx, vy:b.vy-sunB.vy, vz:b.vz-sunB.vz };
+    }
+    const relState = (p:P): Vec6 => { const b = sim.bodies[IDX[p]]; return { x:b.x-sunB.x, y:b.y-sunB.y, z:b.z-sunB.z, vx:b.vx-sunB.vx, vy:b.vy-sunB.vy, vz:b.vz-sunB.vz }; };
+    // Physics -> scene mapping: heliocentric ecliptic (x,y,z) AU -> three.js
+    // (x, z, y) * AU2U (the scene is Y-up; the ecliptic plane is scene X-Z).
+    const sceneFrom = (p:P, out:THREE.Vector3) => { const b = sim.bodies[IDX[p]]; out.set((b.x-sunB.x)*AU2U, (b.z-sunB.z)*AU2U, (b.y-sunB.y)*AU2U); };
+    const oscOf = (p:P): OscElements => { const r = relState(p); return oscFromState(r.x, r.y, r.z, r.vx, r.vy, r.vz, G*(1+sim.bodies[IDX[p]].m)); };
+    const oscCache: Record<P, OscElements> = {} as any;
+    for (const p of PLANETS) oscCache[p] = oscOf(p);
+    // Jupiter's live true longitude — the anchor for Trojan/Hilda swarms.
+    const jupLon = () => { const r = relState('Jupiter'); return Math.atan2(r.y, r.x); };
 
     const R:Record<P,number>={Mercury:1.0,Venus:1.8,Earth:2.2,Mars:1.6,Jupiter:5.6,Saturn:4.2,Uranus:3.4,Neptune:3.1,Pluto:2.4};
     const C:Record<P,number>={Mercury:0xc9b9a7,Venus:0xe0c16c,Earth:0x4da6ff,Mars:0xff6f50,Jupiter:0xd6a46c,Saturn:0xf0d9a6,Uranus:0x84dfff,Neptune:0x5d8cff,Pluto:0xaaaaaa};
@@ -394,7 +405,7 @@ export default function SolarHarmonics3D(){
 
     const amb=new THREE.AmbientLight(0x040408, 0.02); scene.add(amb);
     const sunLight=new THREE.PointLight(0xfff8e7, 2.0, 0, 2); scene.add(sunLight);
-    const rPeriMerc = ELS.Mercury.a*(1-ELS.Mercury.e)*AU2U;
+    const rPeriMerc = oscCache.Mercury.a*(1-oscCache.Mercury.e)*AU2U;
     const SUN_VIS_R = Math.max(2.5, Math.min(rPeriMerc*0.60, AU2U*0.80));
     const sunGeom=new THREE.SphereGeometry(SUN_VIS_R,64,48); const sunMat=makeSunMat(); const sun=new THREE.Mesh(sunGeom,sunMat); sun.name='Sun'; scene.add(sun);
     const sunGlow=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex(),color:0xffffff,blending:THREE.AdditiveBlending,transparent:true,depthWrite:false})); sunGlow.scale.setScalar(rPeriMerc*0.90); scene.add(sunGlow);
@@ -421,10 +432,13 @@ export default function SolarHarmonics3D(){
     const wrap=(x:number)=>{const t=Math.PI*2; x%=t; return x<0?x+t:x};
     const solveE=(M:number,e:number)=>{let E=e<.8?M:Math.PI; for(let k=0;k<6;k++){const f=E-e*Math.sin(E)-M, fp=1-e*Math.cos(E); E-=f/fp;} return E};
     const approxTrue=(M:number,e:number)=>{const s=Math.sin(M), c2=Math.sin(2*M); return M + 2*e*s + 1.25*e*e*c2};
-    const posOf=(p:P)=>{const el=elements[p]; const E=solveE(el.M,el.e); const xp=el.a*(Math.cos(E)-el.e), yp=el.a*Math.sqrt(1-el.e*1)*Math.sin(E); const x=xp, y=yp*Math.sin(el.i), z=yp*Math.cos(el.i); return new THREE.Vector3(x,y,z)};
 
     const mesh:Record<P,THREE.Mesh>={} as any; const line:Record<P,THREE.LineLoop>={} as any;
-    const mkLine=(p:P)=>{if(line[p]){scene.remove(line[p]); line[p].geometry.dispose(); (line[p].material as THREE.Material).dispose();} const el=elements[p], N=512, pts=new Float32Array(N*3); for(let i=0;i<N;i++){const f=i/N*Math.PI*2; const r=el.a*(1-el.e*el.e)/(1+el.e*Math.cos(f)); const xp=r*Math.cos(f), yp=r*Math.sin(f); pts[i*3+0]=xp; pts[i*3+1]=yp*Math.sin(el.i); pts[i*3+2]=yp*Math.cos(el.i);} const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(pts,3)); const m=new THREE.LineBasicMaterial({color:p==='Pluto'?0x8b96a8:0x566173}); const L=new THREE.LineLoop(g,m); scene.add(L); line[p]=L};
+    // Orbit lines are the live OSCULATING ellipses implied by each planet's
+    // state vector — they visibly precess/reshape as perturbations act.
+    const LINE_N=512; const lineScratch=new Float32Array(LINE_N*3);
+    const updateLine=(p:P)=>{ const L=line[p]; if(!L) return; const el=oscCache[p]=oscOf(p); const ok=sampleOrbit(el, lineScratch); L.visible=ok; if(!ok) return; const attr=L.geometry.getAttribute('position') as THREE.BufferAttribute; const arr=attr.array as Float32Array; for(let k=0;k<LINE_N;k++){ arr[3*k]=lineScratch[3*k]*AU2U; arr[3*k+1]=lineScratch[3*k+2]*AU2U; arr[3*k+2]=lineScratch[3*k+1]*AU2U; } attr.needsUpdate=true; };
+    const mkLine=(p:P)=>{ if(line[p]) return; const g=new THREE.BufferGeometry(); const attr=new THREE.BufferAttribute(new Float32Array(LINE_N*3),3); attr.setUsage(THREE.DynamicDrawUsage); g.setAttribute('position',attr); const m=new THREE.LineBasicMaterial({color:p==='Pluto'?0x8b96a8:0x566173}); const L=new THREE.LineLoop(g,m); L.frustumCulled=false; scene.add(L); line[p]=L; updateLine(p); };
 
     const mkAtmoSphere = (parentMesh: THREE.Mesh, planetR: number, params: {color:[number,number,number], power:number, opacity:number, scale:number}) => {
       const geo = new THREE.SphereGeometry(planetR * params.scale, 48, 32);
@@ -663,7 +677,7 @@ export default function SolarHarmonics3D(){
 
       const m = new THREE.Mesh(new THREE.SphereGeometry(R[p],64,48), planetMat);
       m.name = p;
-      m.position.copy(posOf(p));
+      sceneFrom(p, m.position);
       mesh[p] = m;
       scene.add(m);
 
@@ -794,10 +808,10 @@ export default function SolarHarmonics3D(){
     let kui=mkOrbitingBelt(kuiCRef.current,[42,48],0.10,5.5,1.4,()=>{const c=.78+Math.random()*.18;return [c*.65,c*.85,1.0]},0.72);
 
     type Swarm=Belt;
-    const mkCoOrbital=(count:number,aRangeAU:[number,number],centerOffset:number,coreDeg:number,color:number,incSigma=1.2):Swarm=>{const aMin=aRangeAU[0]*AU2U,aMax=aRangeAU[1]*AU2U; const geo=new THREE.BufferGeometry(); const pos=new Float32Array(count*3), col=new Float32Array(count*3); const a=new Float32Array(count), e=new Float32Array(count), inc=new Float32Array(count), M=new Float32Array(count), nA=new Float32Array(count); const cc=new THREE.Color(color); const mj=elements.Jupiter.M; for(let i=0;i<count;i++){const core=Math.random()<0.7; const width=rad(coreDeg); const tail=rad(60); const g=width*0.55*randn(); const tailOff=(Math.random()*tail); const dTheta=core? g : (width*0.25*randn()+tailOff); const sign=Math.sign(centerOffset||1); const theta=wrap(mj+centerOffset+sign*dTheta); const t=clamp((core?Math.abs(g):tailOff)/tail,0,1); const ai=lerp(aMin,aMax, core?0.45+0.35*Math.random():0.25+0.70*t); const ei=Math.min(0.08,Math.abs(randn())*0.03+0.01*Math.random()); const inci=rad(Math.max(0,randn()*incSigma)); a[i]=ai; e[i]=ei; inc[i]=inci; const Ti=TE*Math.pow((ai/aE),1.5); nA[i]=(2*Math.PI)/Ti; M[i]=theta; const f=approxTrue(M[i],e[i]); const r=ai*(1-e[i]*Math.cos(M[i])); const xp=r*Math.cos(f), yp=r*Math.sin(f); const idx=3*i; pos[idx]=xp; pos[idx+1]=yp*Math.sin(inci); pos[idx+2]=yp*Math.cos(inci); col.set([cc.r,cc.g,cc.b],idx);} const posAttr=new THREE.BufferAttribute(pos,3); posAttr.setUsage(THREE.DynamicDrawUsage); geo.setAttribute('position',posAttr); geo.setAttribute('color',new THREE.BufferAttribute(col,3)); const mat=mkMat(0.56, 1.6, 6.5); const pts=new THREE.Points(geo,mat); pts.frustumCulled=false; if(!geo.boundingSphere) geo.boundingSphere=new THREE.Sphere(new THREE.Vector3(0,0,0), AU2U*80); scene.add(pts); return {geo,mesh:pts,a,e,inc,M:M,n:nA,cursor:0}};
+    const mkCoOrbital=(count:number,aRangeAU:[number,number],centerOffset:number,coreDeg:number,color:number,incSigma=1.2):Swarm=>{const aMin=aRangeAU[0]*AU2U,aMax=aRangeAU[1]*AU2U; const geo=new THREE.BufferGeometry(); const pos=new Float32Array(count*3), col=new Float32Array(count*3); const a=new Float32Array(count), e=new Float32Array(count), inc=new Float32Array(count), M=new Float32Array(count), nA=new Float32Array(count); const cc=new THREE.Color(color); const mj=jupLon(); for(let i=0;i<count;i++){const core=Math.random()<0.7; const width=rad(coreDeg); const tail=rad(60); const g=width*0.55*randn(); const tailOff=(Math.random()*tail); const dTheta=core? g : (width*0.25*randn()+tailOff); const sign=Math.sign(centerOffset||1); const theta=wrap(mj+centerOffset+sign*dTheta); const t=clamp((core?Math.abs(g):tailOff)/tail,0,1); const ai=lerp(aMin,aMax, core?0.45+0.35*Math.random():0.25+0.70*t); const ei=Math.min(0.08,Math.abs(randn())*0.03+0.01*Math.random()); const inci=rad(Math.max(0,randn()*incSigma)); a[i]=ai; e[i]=ei; inc[i]=inci; const Ti=TE*Math.pow((ai/aE),1.5); nA[i]=(2*Math.PI)/Ti; M[i]=theta; const f=approxTrue(M[i],e[i]); const r=ai*(1-e[i]*Math.cos(M[i])); const xp=r*Math.cos(f), yp=r*Math.sin(f); const idx=3*i; pos[idx]=xp; pos[idx+1]=yp*Math.sin(inci); pos[idx+2]=yp*Math.cos(inci); col.set([cc.r,cc.g,cc.b],idx);} const posAttr=new THREE.BufferAttribute(pos,3); posAttr.setUsage(THREE.DynamicDrawUsage); geo.setAttribute('position',posAttr); geo.setAttribute('color',new THREE.BufferAttribute(col,3)); const mat=mkMat(0.56, 1.6, 6.5); const pts=new THREE.Points(geo,mat); pts.frustumCulled=false; if(!geo.boundingSphere) geo.boundingSphere=new THREE.Sphere(new THREE.Vector3(0,0,0), AU2U*80); scene.add(pts); return {geo,mesh:pts,a,e,inc,M:M,n:nA,cursor:0}};
     let L4:Swarm, L5:Swarm; const trojanTotal=Math.max(2000,Math.floor(astCRef.current*0.2)); L4=mkCoOrbital(Math.floor(trojanTotal/2),[4.9,5.5],+Math.PI/3,20,0x62f38e,1.0); L5=mkCoOrbital(Math.ceil(trojanTotal/2), [4.9,5.5],-Math.PI/3,20,0xff6b6b,1.0);
 
-    const mkHilda=(count:number,phase:number)=>{const aH=5.2028*Math.pow(2/3,2/3); const geo=new THREE.BufferGeometry(); const pos=new Float32Array(count*3), col=new Float32Array(count*3); const a=new Float32Array(count), e=new Float32Array(count), inc=new Float32Array(count), M=new Float32Array(count), nA=new Float32Array(count); const mj=elements.Jupiter.M; const cc=new THREE.Color(0xc770ff); for(let i=0;i<count;i++){const d=rad(18)*randn(); const theta=wrap(mj+phase+d); const ai=(aH+lerp(-0.35,0.35,Math.random()))*AU2U; const ei=0.08+Math.abs(randn())*0.05; const inci=rad(Math.max(0,randn()*1.5)); a[i]=ai; e[i]=clamp(ei,0,0.18); inc[i]=inci; const Ti=TE*Math.pow((ai/aE),1.5); nA[i]=(2*Math.PI)/Ti; M[i]=theta; const f=approxTrue(M[i],e[i]); const r=ai*(1-e[i]*Math.cos(M[i])); const xp=r*Math.cos(f), yp=r*Math.sin(f); const idx=3*i; pos[idx]=xp; pos[idx+1]=yp*Math.sin(inci); pos[idx+2]=yp*Math.cos(inci); col.set([cc.r,cc.g,cc.b],idx);} const posAttr=new THREE.BufferAttribute(pos,3); posAttr.setUsage(THREE.DynamicDrawUsage); geo.setAttribute('position',posAttr); geo.setAttribute('color',new THREE.BufferAttribute(col,3)); const mat=mkMat(0.64, 1.6, 6.5); const pts=new THREE.Points(geo,mat); pts.frustumCulled=false; if(!geo.boundingSphere) geo.boundingSphere=new THREE.Sphere(new THREE.Vector3(0,0,0), AU2U*80); scene.add(pts); return {geo,mesh:pts,a,e,inc,M:M,n:nA,cursor:0}};
+    const mkHilda=(count:number,phase:number)=>{const aH=5.2028*Math.pow(2/3,2/3); const geo=new THREE.BufferGeometry(); const pos=new Float32Array(count*3), col=new Float32Array(count*3); const a=new Float32Array(count), e=new Float32Array(count), inc=new Float32Array(count), M=new Float32Array(count), nA=new Float32Array(count); const mj=jupLon(); const cc=new THREE.Color(0xc770ff); for(let i=0;i<count;i++){const d=rad(18)*randn(); const theta=wrap(mj+phase+d); const ai=(aH+lerp(-0.35,0.35,Math.random()))*AU2U; const ei=0.08+Math.abs(randn())*0.05; const inci=rad(Math.max(0,randn()*1.5)); a[i]=ai; e[i]=clamp(ei,0,0.18); inc[i]=inci; const Ti=TE*Math.pow((ai/aE),1.5); nA[i]=(2*Math.PI)/Ti; M[i]=theta; const f=approxTrue(M[i],e[i]); const r=ai*(1-e[i]*Math.cos(M[i])); const xp=r*Math.cos(f), yp=r*Math.sin(f); const idx=3*i; pos[idx]=xp; pos[idx+1]=yp*Math.sin(inci); pos[idx+2]=yp*Math.cos(inci); col.set([cc.r,cc.g,cc.b],idx);} const posAttr=new THREE.BufferAttribute(pos,3); posAttr.setUsage(THREE.DynamicDrawUsage); geo.setAttribute('position',posAttr); geo.setAttribute('color',new THREE.BufferAttribute(col,3)); const mat=mkMat(0.64, 1.6, 6.5); const pts=new THREE.Points(geo,mat); pts.frustumCulled=false; if(!geo.boundingSphere) geo.boundingSphere=new THREE.Sphere(new THREE.Vector3(0,0,0), AU2U*80); scene.add(pts); return {geo,mesh:pts,a,e,inc,M:M,n:nA,cursor:0}};
     let H1:Swarm, H2:Swarm, H3:Swarm; const hildaTotal=Math.max(1000,Math.floor(astCRef.current*0.08)); H1=mkHilda(Math.floor(hildaTotal/3), +Math.PI/3); H2=mkHilda(Math.floor(hildaTotal/3), Math.PI); H3=mkHilda(hildaTotal-2*Math.floor(hildaTotal/3), -Math.PI/3);
 
     (function(){const N=2200, geo=new THREE.BufferGeometry(), pos=new Float32Array(N*3); for(let i=0;i<N;i++){const R=5000,u=Math.random(),v=Math.random(),th=2*Math.PI*u, ph=Math.acos(2*v-1); pos[i*3+0]=R*Math.sin(ph)*Math.cos(th); pos[i*3+1]=R*Math.sin(ph)*Math.sin(th); pos[i*3+2]=R*Math.cos(ph);} geo.setAttribute('position',new THREE.BufferAttribute(pos,3)); const s=new THREE.Points(geo,new THREE.PointsMaterial({map:dotTex,size:1.5,transparent:true,depthWrite:false,color:0xffffff})); scene.add(s); bag.push(()=>{geo.dispose(); (s.material as THREE.Material).dispose();})})();
@@ -887,21 +901,84 @@ export default function SolarHarmonics3D(){
     window.addEventListener('keydown', onKeyDown);
     if ((import.meta as any).env?.DEV) { (window as any).__solar = cmdsRef.current; }
 
-    const sysMaxR=()=>{const pMax=Math.max(...PLANETS.map(p=>elements[p].a*(1+elements[p].e))); const kMax=kui?Math.max(...kui.a)*1.05:0; return Math.max(pMax,kMax)};
+    const sysMaxR=()=>{const pMax=Math.max(...PLANETS.map(p=>{const el=oscCache[p]; return (el.a>0&&el.e<1)?el.a*(1+el.e)*AU2U:0;})); const kMax=kui?Math.max(...kui.a)*1.05:0; return Math.max(pMax,kMax)};
     cmdsRef.current.fitInner=()=>{unfocus(); const R=AU2U*4.0; const f=cam.fov*Math.PI/180; distRef.current=clamp(R/Math.tan(f/2)*1.25,80,10000); pitchRef.current=.9};
     cmdsRef.current.fitFull=()=>{unfocus(); const R=sysMaxR(); const f=cam.fov*Math.PI/180; distRef.current=clamp(R/Math.tan(f/2)*1.25,120,30000); pitchRef.current=.9};
     cmdsRef.current.topDown=()=>{unfocus(); pitchRef.current=1.45}; cmdsRef.current.iso=()=>{unfocus(); pitchRef.current=.5; yawRef.current=-Math.PI/4};
 
-    const apply=(p:P,f:number,tiltDeg:number)=>{const el=elements[p]; const E=solveE(el.M,el.e), th=Math.atan2(Math.sqrt(1-el.e*el.e)*Math.sin(E),Math.cos(E)-el.e); const r=el.a*(1-el.e*Math.cos(E)); const pOld=el.a*(1-el.e*el.e), hOld=Math.sqrt(mu*pOld), vtOld=hOld/r, vrOld=(mu/hOld)*el.e*Math.sin(th); const vtNew=clamp(vtOld*clamp(f,.1,10),.05*vtOld,10*vtOld), vrNew=vrOld; let eps=.5*(vtNew*vtNew+vrNew*vrNew)-mu/r; if(eps>=0) eps=-1e-9; let aNew=-mu/(2*eps); const hNew=r*vtNew; let e2=1-(hNew*hNew)/(mu*aNew); e2=clamp(e2,0,0.999999); const eNew=Math.sqrt(e2); const rmax=aNew*(1+eNew); if(rmax>sysMaxR()*1.2){const s=sysMaxR()*1.2/rmax; aNew*=s;} const pNew=aNew*(1-e2); let cosf=(pNew/r-1)/eNew; if(eNew<1e-8||!isFinite(cosf)) cosf=Math.cos(th); cosf=clamp(cosf,-1,1); const sinf=sgn(vrNew)*Math.sqrt(Math.max(0,1-cosf*cosf)); const fNew=Math.atan2(sinf,cosf); const beta=Math.sqrt((1-eNew)/(1+eNew)); const Enew=2*Math.atan(beta*Math.tan(fNew/2)); const Mnew=wrap(Enew - eNew*Math.sin(Enew)); elements[p]={a:aNew,e:eNew,i:rad(tiltDeg),M:Mnew}; mkLine(p); mesh[p].position.copy(posOf(p)); lastRef.current=p; if(focusRef.current?.name===p) startGlide();};
-    cmdsRef.current.apply=apply; cmdsRef.current.resetLast=()=>{const p=lastRef.current; if(!p) return; elements[p]={...base[p]}; mkLine(p); mesh[p].position.copy(posOf(p)); if(focusRef.current?.name===p) startGlide();}; cmdsRef.current.fullReset=()=>{for(const p of PLANETS){elements[p]={...base[p]}; mkLine(p); mesh[p].position.copy(posOf(p))} if(focusRef.current) startGlide();};
+    // Orbit editing on the N-body state: scale the tangential velocity
+    // component (a true delta-v burn), then rotate the whole state about the
+    // line of nodes to set the requested inclination. The perturbed orbit then
+    // evolves under real gravity like everything else.
+    const apply=(p:P,f:number,tiltDeg:number)=>{
+      const b=sim.bodies[IDX[p]]; const mu=G*(1+b.m);
+      let rx=b.x-sunB.x, ry=b.y-sunB.y, rz=b.z-sunB.z;
+      let vx=b.vx-sunB.vx, vy=b.vy-sunB.vy, vz=b.vz-sunB.vz;
+      const r=Math.hypot(rx,ry,rz); const rhx=rx/r, rhy=ry/r, rhz=rz/r;
+      const vr=vx*rhx+vy*rhy+vz*rhz;
+      const tx=vx-vr*rhx, ty=vy-vr*rhy, tz=vz-vr*rhz;
+      let scale=clamp(f,.1,10);
+      // Relax the burn back toward 1x (a no-op is always valid) until the
+      // orbit is bound, fits inside the sim's edge, AND keeps its perihelion
+      // above a floor: a sun-diving orbit moves so fast at perihelion that
+      // the fixed 0.25-day step can't resolve it — the integrator would gain
+      // energy there and slingshot the planet to hyperbolic ejection.
+      const rCap=(sysMaxR()/AU2U)*1.2, rFloor=0.09; // AU
+      for(let it=0; it<200; it++){
+        const nvx=vr*rhx+tx*scale, nvy=vr*rhy+ty*scale, nvz=vr*rhz+tz*scale;
+        const eps=(nvx*nvx+nvy*nvy+nvz*nvz)/2 - mu/r;
+        if(eps<0){ const o=oscFromState(rx,ry,rz,nvx,nvy,nvz,mu); if(o.a*(1+o.e)<=rCap && o.a*(1-o.e)>=rFloor) break; }
+        scale=1+(scale-1)*0.94;
+        if(Math.abs(scale-1)<1e-4){ scale=1; break; }
+      }
+      vx=vr*rhx+tx*scale; vy=vr*rhy+ty*scale; vz=vr*rhz+tz*scale;
+      // Rotate (r, v) rigidly about the ascending-node direction so the
+      // orbital plane's inclination becomes tiltDeg (shape is preserved).
+      const hx=ry*vz-rz*vy, hy=rz*vx-rx*vz, hzz=rx*vy-ry*vx;
+      const hm=Math.hypot(hx,hy,hzz);
+      const iCur=Math.acos(clamp(hzz/hm,-1,1));
+      let ax=-hy, ay=hx; const am=Math.hypot(ax,ay);
+      if(am<1e-12){ax=1; ay=0;} else {ax/=am; ay/=am;}
+      const dI=rad(tiltDeg)-iCur, c=Math.cos(dI), s=Math.sin(dI);
+      const rot=(x:number,y:number,z:number):[number,number,number]=>{
+        const dot=ax*x+ay*y; // axis z-component is 0
+        return [x*c+(ay*z)*s+ax*dot*(1-c), y*c+(-ax*z)*s+ay*dot*(1-c), z*c+(ax*y-ay*x)*s];
+      };
+      [rx,ry,rz]=rot(rx,ry,rz); [vx,vy,vz]=rot(vx,vy,vz);
+      b.x=sunB.x+rx; b.y=sunB.y+ry; b.z=sunB.z+rz;
+      b.vx=sunB.vx+vx; b.vy=sunB.vy+vy; b.vz=sunB.vz+vz;
+      sim.computeAccel();
+      updateLine(p); sceneFrom(p, mesh[p].position); lastRef.current=p;
+      if(focusRef.current?.name===p) startGlide();
+    };
+    const resetPlanet=(p:P)=>{ const b=sim.bodies[IDX[p]]; const e0=epochRel[p];
+      b.x=sunB.x+e0.x; b.y=sunB.y+e0.y; b.z=sunB.z+e0.z;
+      b.vx=sunB.vx+e0.vx; b.vy=sunB.vy+e0.vy; b.vz=sunB.vz+e0.vz;
+      updateLine(p); sceneFrom(p, mesh[p].position); };
+    cmdsRef.current.apply=apply; cmdsRef.current.resetLast=()=>{const p=lastRef.current; if(!p) return; resetPlanet(p); sim.computeAccel(); if(focusRef.current?.name===p) startGlide();}; cmdsRef.current.fullReset=()=>{for(const p of PLANETS) resetPlanet(p); sim.t=0; lineTick=1; sim.computeAccel(); if(focusRef.current) startGlide();};
 
     const advanceBelt=(B:Belt,d:number)=>{const pos=B.geo.getAttribute('position') as THREE.BufferAttribute; const arr=pos.array as Float32Array; const N=B.a.length; const heavy=N>40000; const CH=heavy?Math.max(8000,Math.ceil(N/12)):Math.max(12000,Math.ceil(N/6)); let s=B.cursor,e=Math.min(N,s+CH); for(let i=s;i<e;i++){const Mi=wrap(B.M[i]+B.n[i]*d); B.M[i]=Mi; const ei=B.e[i]; const f=approxTrue(Mi,ei); const r=B.a[i]*(1-ei*Math.cos(Mi)); const xp=r*Math.cos(f), yp=r*Math.sin(f); const si=Math.sin(B.inc[i]),ci=Math.cos(B.inc[i]); const idx=3*i; arr[idx]=xp; arr[idx+1]=yp*si; arr[idx+2]=yp*ci;} const off=s*3, cnt=(e-s)*3; const anyPos:any = pos as any; if (typeof anyPos.setUpdateRange === 'function'){ anyPos.setUpdateRange(off,cnt); } else { if (!anyPos.updateRange) anyPos.updateRange = {offset:0,count:-1}; anyPos.updateRange.offset = off; anyPos.updateRange.count = cnt; } pos.needsUpdate=true; B.cursor=(e===N)?0:e };
 
     const onResize=()=>{const W=root.clientWidth||window.innerWidth,H=root.clientHeight||window.innerHeight; renderer.setSize(W,H); cam.aspect=W/H; cam.updateProjectionMatrix()}; const ro=new ResizeObserver(onResize); ro.observe(root);
 
     const desiredPos=new THREE.Vector3(), desiredLook=new THREE.Vector3(), glTmp=new THREE.Vector3(), glTmp2=new THREE.Vector3();
-    let t0=performance.now(); const loop=()=>{const now=performance.now(), dt=Math.min(.25,(now-t0)/1000); t0=now; const d=dt*simDaysPerSecRef.current;
-      for(const p of PLANETS){const el=elements[p]; const n=Math.sqrt(mu/Math.pow(el.a,3)); el.M=wrap(el.M+n*d); mesh[p].position.copy(posOf(p))}
+    let lineTick=1;
+    let t0=performance.now(); const loop=()=>{const now=performance.now(), dt=Math.min(.25,(now-t0)/1000); t0=now;
+      // Use the days the integrator ACTUALLY advanced (it may truncate after a
+      // stalled frame) so the decorative belts/moons stay in phase with it.
+      const d=sim.advance(dt*simDaysPerSecRef.current);
+      for(const p of PLANETS){ sceneFrom(p, mesh[p].position); }
+      if(--lineTick<=0){ lineTick=15;
+        for(const p of PLANETS) updateLine(p);
+        if(dateHudRef.current){
+          const ms=EPOCH_UNIX_MS+sim.t*86400000, yr=sim.t/365.25;
+          // Past year 9999 the ISO form garbles ("+275760-…") and eventually
+          // new Date() throws — fall back to elapsed years only.
+          dateHudRef.current.textContent = ms<253402300799999
+            ? new Date(ms).toISOString().slice(0,10)+'  •  T+'+yr.toFixed(2)+' yr'
+            : 'T+'+Math.round(yr).toLocaleString()+' yr';
+        }
+      }
       updateMoon(d);
       for(const m of simpleMoons){m.pivot.rotation.y+=m.angVel*d}
       advanceBelt(ast,d); advanceBelt(kui,d); advanceBelt(L4,d); advanceBelt(L5,d); advanceBelt(H1,d); advanceBelt(H2,d); advanceBelt(H3,d);
@@ -1022,10 +1099,16 @@ export default function SolarHarmonics3D(){
             Double-click the Sun or a planet for a close-up satellite view
           </div>
         )}
+        {!webglError && (
+          <div style={{position:'absolute',right:12,top:12,color:'#cbd5e1',fontFamily:'system-ui,sans-serif',fontSize:12.5,background:'rgba(17,24,39,.65)',border:'1px solid #334155',borderRadius:8,padding:'6px 10px',pointerEvents:'none',fontVariantNumeric:'tabular-nums'}}>
+            <span ref={dateHudRef}>2026-07-10  •  T+0.00 yr</span>
+          </div>
+        )}
         {!webglError && focused && <InfoPanel body={focused} onBack={()=>cmdsRef.current.unfocus?.()} />}
       </div>
       <div style={{color:'#e5e7eb',fontFamily:'system-ui,sans-serif',background:'rgba(17,24,39,.7)',border:'1px solid #334155',borderRadius:10,padding:12,height:'calc(100vh - 8px)',overflowY:'auto'}}>
-        <div style={{fontWeight:700,marginBottom:8}}>🛠 Orbit Editor</div>
+        <div style={{fontWeight:700,marginBottom:2}}>🛠 Orbit Editor</div>
+        <div style={{opacity:.65,fontSize:11.5,marginBottom:10}}>True N-body gravity: Sun + 9 planets (AU · days · M☉), Yoshida-4 symplectic, dt ≤ 0.25 d — resonances and precession emerge from the forces.</div>
         <Row label="Orbital Speed (days/sec)"><input type="range" min={0} max={100} step={1} value={speedPos} onChange={e=>{const p=parseInt(e.target.value); setSpeedPos(p); const d=sliderToDays(p,SPEED_MIN,SPEED_MAX); setSimDaysPerSec(d); simDaysPerSecRef.current=d;}}/><span style={{textAlign:'right'}}>{simDaysPerSec}</span></Row>
         <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:16}}>
           <Btn onClick={()=>cmdsRef.current.topDown?.()}>Top‑down</Btn>

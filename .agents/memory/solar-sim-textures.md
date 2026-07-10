@@ -95,9 +95,10 @@ ring mesh `rotation.x = PI/2`), then tilt the **whole planet mesh** by the obliq
 (`m.rotation.z = degToRad(97.77)`). The ring is a child of the body, so it tips with it and stands
 vertical — and the body's bands/poles stay aligned with the ring (physically correct). Do NOT tilt
 only the ring (bands would then disagree with the ring).
-**Why it's safe here:** planets never spin in this sim — the `_spinUpdates` array is created but
-never pushed to, and the animation loop only sets `mesh[p].position` (never `.rotation`), so a body
-tilt persists frame-to-frame and the ring won't precess/wobble. If per-axis spin is ever added,
-spin must be applied about the tilted axis (or via a child group) or the tilted ring will wobble.
+**Why it's safe here:** the animation loop never overwrites `.rotation`, so a body tilt persists
+frame-to-frame. Spin DOES exist since the double-click focus feature: the focused body spins via
+`obj.rotateY()`, which rotates about the body's LOCAL (i.e. tilted) pole — exactly the safe way —
+so the equatorial ring spins about its own symmetry axis and cannot wobble. Keep any future spin
+on the local axis (`rotateY`/child group), never by writing world-frame Euler angles.
 **Uranus ring look:** the rings are dark and narrow; only the outer epsilon ring reads bright. Keep
 the broad annulus baseline alpha very low (~0.02) or it looks like a ghost disk instead of a thin ring.

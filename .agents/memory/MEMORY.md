@@ -1,1 +1,2 @@
 - [Solar-sim planet rendering](solar-sim-textures.md) — procedural vs CDN maps, sampling user photos into equirectangular textures, ring proportions & orientation (obliquity tilt), dimming unlit outer planets.
+- [Solar-sim N-body physics](solar-sim-nbody.md) — AU/day/M☉ units (G=k²), Yoshida-4 symplectic integrator, Standish-elements initial conditions when Horizons is unreachable, physics-vs-visual scale separation, verification harness.
