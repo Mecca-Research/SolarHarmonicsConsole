@@ -181,38 +181,34 @@ const EARTH_NIGHT_URL  = `${GLOBE_CDN}/earth-night.jpg`;
 const EARTH_WATER_URL  = `${GLOBE_CDN}/earth-water.png`;
 const EARTH_TOPO_URL   = `${GLOBE_CDN}/earth-topology.png`;
 
-// Venus intentionally has NO atmosphere shell: the bright additive halo read
-// as a ring around the planet.
-const ATMO_PARAMS: Record<string, {color:[number,number,number], power:number, opacity:number, scale:number}> = {
-  Earth:   {color:[0.15,0.4,1.0],   power:4.5, opacity:0.0, scale:1.025},
-  Mars:    {color:[0.8,0.35,0.2],   power:5.5, opacity:0.25, scale:1.02},
-  Jupiter: {color:[0.85,0.65,0.35], power:3.5, opacity:0.20, scale:1.03},
-  Uranus:  {color:[0.4,0.85,0.9],   power:3.5, opacity:0.30, scale:1.04},
-  Neptune: {color:[0.25,0.45,1.0],  power:3.5, opacity:0.35, scale:1.04},
-  // Pluto intentionally has no haze shell — it read as a grey glowing ring.
-};
+// NOTE: there are deliberately NO additive atmosphere glow shells anywhere —
+// every one of them (Venus, Pluto, then Jupiter/Uranus/Neptune) read as a
+// transparent ring floating around the planet. Atmosphere color belongs in
+// the surface textures.
 
-const ATMO_VERT = /* glsl */`
+// Day/night terminator shader for the inner rocky planets (Mercury, Venus,
+// Mars): same soft sun-facing terminator as Earth's shader, minus the
+// night-lights/ocean layers. A faint ambient keeps the night limb readable.
+const LIT_VERT = /* glsl */`
+  varying vec2 vUv;
   varying vec3 vNormal;
-  varying vec3 vViewDir;
   void main(){
-    vNormal = normalize(normalMatrix * normal);
-    vec4 mvPos = modelViewMatrix * vec4(position, 1.0);
-    vViewDir = normalize(-mvPos.xyz);
-    gl_Position = projectionMatrix * mvPos;
+    vUv = uv;
+    vNormal = normalize((modelMatrix * vec4(normal, 0.0)).xyz);
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
 `;
 
-const ATMO_FRAG = /* glsl */`
-  uniform vec3 uColor;
-  uniform float uPower;
-  uniform float uOpacity;
+const LIT_FRAG = /* glsl */`
+  uniform sampler2D dayMap;
+  uniform vec3 sunDir;
+  varying vec2 vUv;
   varying vec3 vNormal;
-  varying vec3 vViewDir;
   void main(){
-    float intensity = 1.0 - dot(vNormal, vViewDir);
-    float scatter = pow(max(intensity, 0.0), uPower);
-    gl_FragColor = vec4(uColor, scatter * uOpacity);
+    float NdotL = dot(normalize(vNormal), sunDir);
+    float dayFactor = smoothstep(-0.15, 0.25, NdotL);
+    vec3 col = texture2D(dayMap, vUv).rgb;
+    gl_FragColor = vec4(col * (0.035 + 0.965 * dayFactor), 1.0);
   }
 `;
 
@@ -479,44 +475,6 @@ export default function SolarHarmonics3D(){
     const LINE_N=512; const lineScratch=new Float32Array(LINE_N*3);
     const updateLine=(p:P)=>{ const L=line[p]; if(!L) return; const el=oscCache[p]=oscOf(p); const ok=sampleOrbit(el, lineScratch); L.visible=ok; if(!ok) return; const attr=L.geometry.getAttribute('position') as THREE.BufferAttribute; const arr=attr.array as Float32Array; for(let k=0;k<LINE_N;k++){ arr[3*k]=lineScratch[3*k]*AU2U; arr[3*k+1]=lineScratch[3*k+2]*AU2U; arr[3*k+2]=lineScratch[3*k+1]*AU2U; } attr.needsUpdate=true; };
     const mkLine=(p:P)=>{ if(line[p]) return; const g=new THREE.BufferGeometry(); const attr=new THREE.BufferAttribute(new Float32Array(LINE_N*3),3); attr.setUsage(THREE.DynamicDrawUsage); g.setAttribute('position',attr); const m=new THREE.LineBasicMaterial({color:p==='Pluto'?0x8b96a8:0x566173}); const L=new THREE.LineLoop(g,m); L.frustumCulled=false; scene.add(L); line[p]=L; updateLine(p); };
-
-    const mkAtmoSphere = (parentMesh: THREE.Mesh, planetR: number, params: {color:[number,number,number], power:number, opacity:number, scale:number}) => {
-      const geo = new THREE.SphereGeometry(planetR * params.scale, 48, 32);
-      const mat = new THREE.ShaderMaterial({
-        vertexShader: ATMO_VERT,
-        fragmentShader: ATMO_FRAG,
-        uniforms: {
-          uColor: { value: new THREE.Vector3(params.color[0], params.color[1], params.color[2]) },
-          uPower: { value: params.power },
-          uOpacity: { value: params.opacity },
-        },
-        transparent: true,
-        blending: THREE.AdditiveBlending,
-        side: THREE.BackSide,
-        depthWrite: false,
-      });
-      const atmo = new THREE.Mesh(geo, mat);
-      parentMesh.add(atmo);
-      bag.push(() => { geo.dispose(); mat.dispose(); });
-
-      const geo2 = new THREE.SphereGeometry(planetR * (params.scale * 0.997), 48, 32);
-      const mat2 = new THREE.ShaderMaterial({
-        vertexShader: ATMO_VERT,
-        fragmentShader: ATMO_FRAG,
-        uniforms: {
-          uColor: { value: new THREE.Vector3(params.color[0], params.color[1], params.color[2]) },
-          uPower: { value: params.power + 1.0 },
-          uOpacity: { value: params.opacity * 0.4 },
-        },
-        transparent: true,
-        blending: THREE.AdditiveBlending,
-        side: THREE.FrontSide,
-        depthWrite: false,
-      });
-      const atmo2 = new THREE.Mesh(geo2, mat2);
-      parentMesh.add(atmo2);
-      bag.push(() => { geo2.dispose(); mat2.dispose(); });
-    };
 
     const earthShaderUniforms = {
       dayMap:   { value: new THREE.Texture() },
@@ -847,6 +805,9 @@ export default function SolarHarmonics3D(){
       const t=track(new THREE.CanvasTexture(c));(t as any).colorSpace=THREE.SRGBColorSpace;t.needsUpdate=true;return t;
     };
 
+    // Sun-direction uniforms for the terminator-lit inner planets.
+    const litUniforms: Partial<Record<P, {dayMap:{value:THREE.Texture}, sunDir:{value:THREE.Vector3}}>> = {};
+
     for(const p of PLANETS){
       let planetMat: THREE.Material;
       const isOuter = OUTER_PLANETS.has(p);
@@ -871,13 +832,15 @@ export default function SolarHarmonics3D(){
           loadFirst(cdnUrls, (tex) => { basicMat.map = tex; basicMat.needsUpdate = true; });
         }
       } else {
-        const fb = fallbackTex(p);
-        const basicMat = new THREE.MeshBasicMaterial({ color: 0xffffff, map: fb });
-        planetMat = basicMat;
+        // Inner rocky planets: day/night terminator like Earth's — the
+        // hemisphere facing away from the Sun falls into near-darkness.
+        const uniforms = { dayMap: { value: fallbackTex(p) }, sunDir: { value: new THREE.Vector3(1,0,0) } };
+        litUniforms[p] = uniforms;
+        planetMat = new THREE.ShaderMaterial({ vertexShader: LIT_VERT, fragmentShader: LIT_FRAG, uniforms });
 
         const cdnUrls = CDN_TEX_URLS[p];
         if (cdnUrls && cdnUrls.length > 0) {
-          loadFirst(cdnUrls, (tex) => { basicMat.map = tex; basicMat.needsUpdate = true; });
+          loadFirst(cdnUrls, (tex) => { uniforms.dayMap.value = tex; });
         }
       }
 
@@ -928,11 +891,6 @@ export default function SolarHarmonics3D(){
         // Uranus is tipped ~98 deg on its side — that's WHY its rings appear nearly vertical.
         // Tilting the whole body (with its equatorial ring) stands the ring upright as in the photo.
         m.rotation.z = THREE.MathUtils.degToRad(97.77);
-      }
-
-      const atmoP = ATMO_PARAMS[p];
-      if (atmoP) {
-        mkAtmoSphere(m, R[p], atmoP);
       }
 
       mkLine(p);
@@ -1237,6 +1195,9 @@ export default function SolarHarmonics3D(){
       const sunDirFromEarth = new THREE.Vector3().copy(earthPos).negate().normalize();
       earthShaderUniforms.sunDir.value.copy(sunDirFromEarth);
       earthShaderUniforms.camPos.value.copy(cam.position);
+      for(const p of ['Mercury','Venus','Mars'] as const){
+        const u=litUniforms[p]; if(u) u.sunDir.value.copy(mesh[p].position).multiplyScalar(-1).normalize();
+      }
 
       if(Math.random()<dt*6)spawn(); if(Math.random()<dt*6)spawn();
       flareGroup.rotation.y+=.25*dt;
