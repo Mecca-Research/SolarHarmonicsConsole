@@ -17,11 +17,21 @@ canvas textures as a last-resort fallback.
 - **Use jsdelivr-served GitHub repos for equirectangular maps** — they return real JPEGs with
   `access-control-allow-origin: *`. Verified working base:
   `https://cdn.jsdelivr.net/gh/jeromeetienne/threex.planets@master/images/`
-  with files: `marsmap1k.jpg`, `jupitermap.jpg`, `plutomap1k.jpg` (the only three still used).
-  Mercury, Venus, Saturn (body AND rings), Uranus, Neptune are now hand-built procedural maps
-  modeled on NASA reference photos (MESSENGER enhanced color / Magellan radar / Cassini portrait /
-  Keck / Voyager 2) — the CDN versions of those looked worse and must NOT be re-added as overrides,
-  since `loadFirst` would clobber the procedurals asynchronously.
+  with files: `venusmap.jpg`, `marsmap1k.jpg`, `jupitermap.jpg`, `plutomap1k.jpg` (the four used).
+  Mercury, Saturn (body AND rings), Uranus, Neptune are hand-built procedural maps modeled on NASA
+  reference photos (MESSENGER enhanced color / Cassini portrait / Keck / Voyager 2) — the CDN
+  versions of those looked worse and must NOT be re-added as overrides, since `loadFirst` would
+  clobber the procedurals asynchronously. Venus is the exception: the USER PREFERS the classic
+  creamy cloud-deck look (CDN venusmap over a matching cloudy procedural fallback), NOT the
+  Magellan radar surface — don't bring the orange radar Venus back.
+
+## Belt/flare particles must depth-test (planets looked transparent)
+The belt Points shader and the sun-flare sprites originally used `depthTest:false`, which drew
+Kuiper/asteroid particles and flares ON TOP of planet disks even when they were behind them —
+users read this as "the planets are semi-transparent." Keep `depthTest:true` (with
+`depthWrite:false` so translucent particles still blend among themselves). Never disable depth
+testing on anything that can overlap a planet disk. Same family of issue: additive atmosphere
+halo shells read as "rings" on small bodies — Venus and Pluto must have NO ATMO_PARAMS entry.
 - Earth uses `https://cdn.jsdelivr.net/npm/three-globe@.../example/img/earth-day.jpg` (also CORS-ok).
 
 ## Why
