@@ -17,9 +17,11 @@ canvas textures as a last-resort fallback.
 - **Use jsdelivr-served GitHub repos for equirectangular maps** — they return real JPEGs with
   `access-control-allow-origin: *`. Verified working base:
   `https://cdn.jsdelivr.net/gh/jeromeetienne/threex.planets@master/images/`
-  with files: `mercurymap.jpg`, `venusmap.jpg`, `marsmap1k.jpg`, `jupitermap.jpg`,
-  `saturnmap.jpg`, `plutomap1k.jpg`. (`uranusmap.jpg`/`neptunemap.jpg` exist there too but are
-  tiny/near-flat — see "Gas-giant procedural textures" below; they are generated procedurally instead.)
+  with files: `marsmap1k.jpg`, `jupitermap.jpg`, `plutomap1k.jpg` (the only three still used).
+  Mercury, Venus, Saturn (body AND rings), Uranus, Neptune are now hand-built procedural maps
+  modeled on NASA reference photos (MESSENGER enhanced color / Magellan radar / Cassini portrait /
+  Keck / Voyager 2) — the CDN versions of those looked worse and must NOT be re-added as overrides,
+  since `loadFirst` would clobber the procedurals asynchronously.
 - Earth uses `https://cdn.jsdelivr.net/npm/three-globe@.../example/img/earth-day.jpg` (also CORS-ok).
 
 ## Why
@@ -62,6 +64,21 @@ smallest body, so at the only zoom where its far orbit is in frame (full-system 
 sub-pixel while the gas giants (R 3.1–5.6) were visible. Fix was to bump Pluto's R and add a faint
 additive atmosphere haze (also realistic — New Horizons blue haze) so it reads at distance.
 **Why:** camera far plane is huge (120000), so it was never clipping — pure on-screen pixel size.
+
+## Venus must have NO atmosphere glow shell
+Venus's additive BackSide atmosphere halo (formerly opacity 0.55, scale 1.06) read as a bright
+RING around the planet disk and the user asked for it to be removed. Do not re-add a Venus entry
+to ATMO_PARAMS. If Venus ever needs an atmosphere effect, it must be surface-level (baked into
+the texture), not a rim-glow shell.
+
+## Seam-safe procedural detail (the `mkNoise`/`wrapX` helpers)
+The reference-photo procedurals get organic mottling from summed sinusoids whose LONGITUDE
+frequency is an integer (`mkNoise`) — that generalizes the even-multiple-of-π seam rule to
+noise. Any canvas stroke/blob that could cross the x seam is drawn via `wrapX` (paints at
+x-offsets −w, 0, +w). Per-pixel bases are computed at 256×128 and upscaled with smoothing;
+avoid hard thresholds in per-pixel code (they upscale into blocky edges — use a smoothstep,
+as the Venus radar-dark plains do). Craters/spots must stretch their x-radius by 1/cos(lat)
+to stay round on the sphere.
 
 ## Matching planets to user-supplied "satellite photos"
 When the user hands you a planet photo (a round disk on black), it is NOT equirectangular and

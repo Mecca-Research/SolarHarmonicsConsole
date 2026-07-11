@@ -14,12 +14,12 @@ const TEX_CDN = 'https://www.solarsystemscope.com/textures/download';
 const GLOBE_CDN = 'https://cdn.jsdelivr.net/npm/three-globe@2.34.0/example/img';
 const PLANET_CDN = 'https://cdn.jsdelivr.net/gh/jeromeetienne/threex.planets@master/images';
 
+// Mercury, Venus and Saturn are now hand-built procedural maps modeled on the
+// NASA reference photos (MESSENGER enhanced color / Magellan radar / Cassini)
+// — the tiny CDN maps looked worse, so they must NOT override the procedurals.
 const CDN_TEX_URLS: Record<string, string[]> = {
-  Mercury: [`${PLANET_CDN}/mercurymap.jpg`],
-  Venus:   [`${PLANET_CDN}/venusmap.jpg`],
   Mars:    [`${PLANET_CDN}/marsmap1k.jpg`],
   Jupiter: [`${PLANET_CDN}/jupitermap.jpg`],
-  Saturn:  [`${PLANET_CDN}/saturnmap.jpg`],
   Pluto:   [`${PLANET_CDN}/plutomap1k.jpg`],
 };
 
@@ -178,11 +178,10 @@ const BODY_INFO: Record<BodyName, {kind:string; blurb:string; stats:[string,stri
 const EARTH_NIGHT_URL  = `${GLOBE_CDN}/earth-night.jpg`;
 const EARTH_WATER_URL  = `${GLOBE_CDN}/earth-water.png`;
 const EARTH_TOPO_URL   = `${GLOBE_CDN}/earth-topology.png`;
-const SATURN_RING_COLOR_URL = `${PLANET_CDN}/saturnringcolor.jpg`;
-const SATURN_RING_ALPHA_URL = `${PLANET_CDN}/saturnringpattern.gif`;
 
+// Venus intentionally has NO atmosphere shell: the bright additive halo read
+// as a ring around the planet.
 const ATMO_PARAMS: Record<string, {color:[number,number,number], power:number, opacity:number, scale:number}> = {
-  Venus:   {color:[0.95,0.85,0.5],  power:2.5, opacity:0.55, scale:1.06},
   Earth:   {color:[0.15,0.4,1.0],   power:4.5, opacity:0.0, scale:1.025},
   Mars:    {color:[0.8,0.35,0.2],   power:5.5, opacity:0.25, scale:1.02},
   Jupiter: {color:[0.85,0.65,0.35], power:3.5, opacity:0.20, scale:1.03},
@@ -349,7 +348,19 @@ export default function SolarHarmonics3D(){
     const makeBlot=(base:string,blot:string,n=110)=>{const s=256,c=document.createElement('canvas');c.width=c.height=s;const x=c.getContext('2d')!;x.fillStyle=base;x.fillRect(0,0,s,s);x.globalAlpha=.25;x.fillStyle=blot;for(let i=0;i<n;i++){const r=(Math.random()*.06+.02)*s,xx=Math.random()*s,yy=Math.random()*s;x.beginPath();x.arc(xx,yy,r,0,Math.PI*2);x.fill();}x.globalAlpha=1;const t=track(new THREE.CanvasTexture(c));(t as any).colorSpace=THREE.SRGBColorSpace;(t as any).needsUpdate=true;return t};
     const bandsProc=(cols:string[])=>{const s=256,c=document.createElement('canvas');c.width=c.height=s;const x=c.getContext('2d')!,bh=s/cols.length;cols.forEach((col,i)=>{x.fillStyle=col;x.fillRect(0,i*bh,s,bh)});const t=track(new THREE.CanvasTexture(c));(t as any).colorSpace=THREE.SRGBColorSpace;(t as any).needsUpdate=true;return t};
     const earthProc=()=>{const s=256,c=document.createElement('canvas');c.width=c.height=s;const x=c.getContext('2d')!;x.fillStyle='#2764cc';x.fillRect(0,0,s,s);x.fillStyle='#4caf50';x.globalAlpha=.95;for(let i=0;i<80;i++){const r=(Math.random()*.08+.03)*s,xx=Math.random()*s,yy=Math.random()*s;x.beginPath();x.arc(xx,yy,r,0,Math.PI*2);x.fill()}x.globalAlpha=1;const t=track(new THREE.CanvasTexture(c));(t as any).colorSpace=THREE.SRGBColorSpace;(t as any).needsUpdate=true;return t};
-    const fallbackTex=(n:P)=>({Mercury:makeBlot('#b6ada3','#6e675f'),Venus:makeBlot('#e8c873','#c8a24a'),Earth:earthProc(),Mars:makeBlot('#d16b3e','#7a3e26'),Jupiter:bandsProc(['#caa376','#e1c8a8','#b68955','#e6d3b7','#ad7a49','#dcc29f','#bf915f']),Saturn:bandsProc(['#e8d7aa','#d8be86','#efdcb8','#c8aa72','#e5d6ae','#c8aa72']),Uranus:bandsProc(['#9de3f7','#84dfff','#9de3f7']),Neptune:bandsProc(['#6aa7ff','#5d8cff','#6aa7ff']),Pluto:makeBlot('#cdcac7','#a09d9b')})[n];
+    // Lazy so only the requested planet's texture is built (the reference-photo
+    // procedurals below are heavier than the old blot textures).
+    const fallbackTex=(n:P):THREE.Texture=>{switch(n){
+      case 'Mercury': return mercuryProc();
+      case 'Venus':   return venusProc();
+      case 'Earth':   return earthProc();
+      case 'Mars':    return makeBlot('#d16b3e','#7a3e26');
+      case 'Jupiter': return bandsProc(['#caa376','#e1c8a8','#b68955','#e6d3b7','#ad7a49','#dcc29f','#bf915f']);
+      case 'Saturn':  return saturnBodyProc();
+      case 'Uranus':  return uranusProc();
+      case 'Neptune': return neptuneProc();
+      default:        return makeBlot('#cdcac7','#a09d9b');
+    }};
 
     const tl = new THREE.TextureLoader();
     tl.crossOrigin = 'anonymous';
@@ -370,21 +381,45 @@ export default function SolarHarmonics3D(){
     };
 
     const saturnRingProc=()=>{
-      const w=1024,h=8,c=document.createElement('canvas');c.width=w;c.height=h;
+      // Detailed strip modeled on the Cassini portrait. u 0->1 maps radius
+      // 1.20R -> 2.33R: C ring (translucent, grooved) -> dense bright B ring
+      // (packed fine ringlets) -> Cassini Division (with its faint inner
+      // ringlet) -> A ring (Encke + Keeler gaps) -> dark gap -> thin F ring.
+      const w=2048,h=8,c=document.createElement('canvas');c.width=w;c.height=h;
       const x=c.getContext('2d')!;x.clearRect(0,0,w,h);
-      // u 0->1 maps inner(1.20R)->outer(2.27R): faint C ring, bright B ring, Cassini gap, A ring.
-      const seg=(t:number):[number,number]=>{
-        let a=0,lum=200;
-        if(t<0.304){ a=0.28+0.10*Math.sin(t*60); lum=165+25*Math.sin(t*50); }       // C ring (faint, dusky)
-        else if(t<0.701){ a=0.92+0.06*Math.sin(t*90); lum=212+28*Math.sin(t*70); }   // B ring (bright, dense)
-        else if(t<0.771){ a=0.06; lum=120; }                                          // Cassini Division
-        else { a=0.64+0.10*Math.sin(t*80); lum=196+24*Math.sin(t*60); }              // A ring (medium)
-        if(t>0.945&&t<0.962) a*=0.25;                                                  // Encke gap
-        if(t<0.012||t>0.992) a=0;                                                      // soft edges
-        return [Math.max(0,a),lum];
+      // fine quasi-random grooving (fixed phases, radial so no wrap concern)
+      const grain=(t:number)=>0.5+0.20*Math.sin(t*831.7)+0.16*Math.sin(t*407.3+1.7)+0.12*Math.sin(t*1723.9+0.6)+0.08*Math.sin(t*263.1+2.9);
+      const seg=(t:number):[number,number,number]=>{ // [alpha, lum, warmth]
+        let a=0,lum=200,warm=1;
+        const g=grain(t);
+        if(t<0.031){ a=0; }
+        else if(t<0.288){ // C ring: dusky, translucent, brightening outward
+          const k=(t-0.031)/0.257; a=0.10+0.20*k+0.10*(g-0.5); lum=140+30*k+22*(g-0.5); warm=0.92;
+          if(Math.abs(t-0.115)<0.004) a*=0.30;                        // Colombo gap
+          if(Math.abs(t-0.236)<0.004) a*=0.30;                        // Maxwell gap
+        }
+        else if(t<0.664){ // B ring: bright, dense, heavily grooved
+          const k=(t-0.288)/0.376; a=0.88+0.12*(g-0.2); lum=205+34*g-12*k; warm=1.0;
+          if(Math.abs(t-0.30)<0.006) lum-=26;                          // inner B shading
+        }
+        else if(t<0.735){ // Cassini Division: near-empty with a faint ringlet
+          a=0.05; lum=120;
+          if(Math.abs(t-0.695)<0.006){ a=0.20; lum=150; }              // Huygens ringlet
+        }
+        else if(t<0.947){ // A ring: medium, finely grooved
+          const k=(t-0.735)/0.212; a=0.60+0.10*(g-0.5)-0.10*k; lum=188+22*g-10*k; warm=0.97;
+          if(Math.abs(t-0.897)<0.005) a*=0.06;                         // Encke gap
+          if(Math.abs(t-0.938)<0.0022) a*=0.15;                        // Keeler gap
+        }
+        else if(t<0.985){ a=0.012; lum=120; }                          // Roche gap
+        else { // F ring: single thin bright strand
+          const d=Math.abs(t-0.9915); a=d<0.0035?0.55*(1-d/0.0035):0; lum=225;
+        }
+        if(t>0.9995) a=0;
+        return [Math.max(0,Math.min(1,a)),lum,warm];
       };
-      for(let i=0;i<w;i++){ const t=i/(w-1); const [a,lum]=seg(t);
-        x.fillStyle=`rgba(${lum|0},${(lum*0.9)|0},${(lum*0.68)|0},${a.toFixed(3)})`; x.fillRect(i,0,1,h); }
+      for(let i=0;i<w;i++){ const t=i/(w-1); const [a,lum,warm]=seg(t);
+        x.fillStyle=`rgba(${lum|0},${(lum*0.93*warm)|0},${(lum*0.80*warm)|0},${a.toFixed(3)})`; x.fillRect(i,0,1,h); }
       const tex=track(new THREE.CanvasTexture(c));(tex as any).colorSpace=THREE.SRGBColorSpace;(tex as any).needsUpdate=true;return tex;
     };
 
@@ -502,143 +537,305 @@ export default function SolarHarmonics3D(){
     earthShaderUniforms.nightMap.value = solidTex(0x050510);
     earthShaderUniforms.specMap.value = solidTex(0x000000);
 
-    const saturnBodyProc = () => {
-      const s = 512, c = document.createElement('canvas'); c.width = s; c.height = s;
-      const x = c.getContext('2d')!;
-      const bands = [
-        {y:0,   h:0.06, col:'#d4c89a'}, {y:0.06, h:0.08, col:'#c8b878'},
-        {y:0.14, h:0.10, col:'#e0d4a8'}, {y:0.24, h:0.06, col:'#c4aa68'},
-        {y:0.30, h:0.12, col:'#ddd0a0'}, {y:0.42, h:0.08, col:'#b89e58'},
-        {y:0.50, h:0.10, col:'#e8ddb8'}, {y:0.60, h:0.06, col:'#c8b878'},
-        {y:0.66, h:0.10, col:'#d8c890'}, {y:0.76, h:0.08, col:'#c0a860'},
-        {y:0.84, h:0.08, col:'#ddd0a0'}, {y:0.92, h:0.08, col:'#d4c89a'},
-      ];
-      bands.forEach(b => {
-        x.fillStyle = b.col;
-        x.fillRect(0, b.y * s, s, b.h * s);
-      });
-      x.globalAlpha = 0.12;
-      for (let i = 0; i < 600; i++) {
-        const yy = Math.random() * s;
-        x.strokeStyle = Math.random() > 0.5 ? '#fff' : '#a08850';
-        x.globalAlpha = 0.03 + Math.random() * 0.08;
-        x.beginPath(); x.moveTo(0, yy); x.lineTo(s, yy); x.lineWidth = 0.5 + Math.random() * 1.5; x.stroke();
+    // ---- Reference-photo procedural textures ------------------------------
+    // The NASA reference images are disk-on-black photos (not equirectangular),
+    // so their palettes are baked into hand-built equirectangular maps instead
+    // of UV-mapping them directly. All longitude waves use integer frequencies
+    // so the maps wrap seamlessly; generators are seeded so every load matches.
+    const mkRng=(seed:number)=>{let s=seed>>>0; return ()=>{s=(s*1664525+1013904223)>>>0; return s/4294967296;};};
+    // Seam-free organic mottling: summed integer-longitude-frequency sinusoids.
+    const mkNoise=(seed:number,octaves=10)=>{
+      const rnd=mkRng(seed);
+      const terms:{fx:number;fy:number;ph:number;ph2:number;amp:number}[]=[]; let norm=0;
+      for(let o=0;o<octaves;o++){const amp=1/(1+o*0.5); norm+=amp;
+        terms.push({fx:1+Math.floor(rnd()*(2+o*1.5)),fy:0.5+rnd()*(1.5+o*1.2),ph:rnd()*Math.PI*2,ph2:rnd()*Math.PI*2,amp});}
+      return (u:number,v:number)=>{let s=0; for(const q of terms) s+=Math.sin(u*Math.PI*2*q.fx+Math.sin(v*Math.PI*2*q.fy+q.ph2)*1.8+q.ph)*q.amp; return s/norm;};
+    };
+    // Paint fn at x-offsets -w,0,+w so strokes crossing the seam wrap cleanly.
+    const wrapX=(x2:CanvasRenderingContext2D,w:number,fn:()=>void)=>{for(const off of [-w,0,w]){x2.save();x2.translate(off,0);fn();x2.restore();}};
+
+    const mercuryProc=()=>{
+      // MESSENGER enhanced-color style: warm tan volcanic plains, deep indigo
+      // low-reflectance terrain, pale blue-white crater ray systems, and a
+      // broad Caloris-like warm basin.
+      const w=1024,h=512,c=document.createElement('canvas');c.width=w;c.height=h;const x=c.getContext('2d')!;
+      const rnd=mkRng(20261);
+      const nProv=mkNoise(11,7), nTone=mkNoise(23,10);
+      const bw=256,bh=128,bc=document.createElement('canvas');bc.width=bw;bc.height=bh;const bx=bc.getContext('2d')!;
+      const img=bx.createImageData(bw,bh);
+      const TAN=[191,139,82], MID=[118,108,121], BLU=[47,60,110];
+      for(let j=0;j<bh;j++)for(let i=0;i<bw;i++){
+        const u=i/bw, v=j/bh;
+        const p=nProv(u,v), tone=nTone(u*3,v*3);
+        let r:number,g:number,b:number;
+        if(p>0.08){const k=Math.min(1,(p-0.08)/0.30); r=lerp(MID[0],TAN[0],k);g=lerp(MID[1],TAN[1],k);b=lerp(MID[2],TAN[2],k);}
+        else if(p<-0.08){const k=Math.min(1,(-p-0.08)/0.30); r=lerp(MID[0],BLU[0],k);g=lerp(MID[1],BLU[1],k);b=lerp(MID[2],BLU[2],k);}
+        else {r=MID[0];g=MID[1];b=MID[2];}
+        const lum=1+tone*0.22-(Math.abs(v-0.5)>0.42?0.08:0);
+        const o=4*(j*bw+i); img.data[o]=clamp(r*lum,0,255); img.data[o+1]=clamp(g*lum,0,255); img.data[o+2]=clamp(b*lum,0,255); img.data[o+3]=255;
       }
-      x.globalAlpha = 1;
-      const t = track(new THREE.CanvasTexture(c)); (t as any).colorSpace = THREE.SRGBColorSpace; t.needsUpdate = true; return t;
+      bx.putImageData(img,0,0);
+      x.imageSmoothingEnabled=true; x.drawImage(bc,0,0,w,h);
+      // Caloris-like basin: broad warm plain with a subtle darker rim.
+      wrapX(x,w,()=>{
+        const cx2=w*0.66, cy2=h*0.24, rr=w*0.085;
+        const g2=x.createRadialGradient(cx2,cy2,0,cx2,cy2,rr);
+        g2.addColorStop(0,'rgba(214,156,92,0.9)');g2.addColorStop(0.75,'rgba(206,148,88,0.55)');g2.addColorStop(1,'rgba(206,148,88,0)');
+        x.fillStyle=g2;x.beginPath();x.ellipse(cx2,cy2,rr*1.35,rr,0,0,Math.PI*2);x.fill();
+        x.strokeStyle='rgba(120,96,80,0.25)';x.lineWidth=3;x.beginPath();x.ellipse(cx2,cy2,rr*1.30,rr*0.96,0,0,Math.PI*2);x.stroke();
+      });
+      // Craters: dark rim halo + lighter floor; x-radius stretched with
+      // latitude so they render round on the sphere.
+      for(let i=0;i<420;i++){
+        const px2=rnd()*w, py2=h*(0.04+rnd()*0.92);
+        const lat=(py2/h-0.5)*Math.PI; const stretch=Math.min(3.2,1/Math.max(0.28,Math.cos(lat)));
+        const r2=(rnd()<0.85?1.2+rnd()*5:6+rnd()*10);
+        wrapX(x,w,()=>{
+          x.globalAlpha=0.12+rnd()*0.16; x.fillStyle=rnd()<0.5?'#232a44':'#3c342c';
+          x.beginPath();x.ellipse(px2,py2,r2*stretch,r2,0,0,Math.PI*2);x.fill();
+          x.globalAlpha=0.05+rnd()*0.08; x.fillStyle='#d8cdb8';
+          x.beginPath();x.ellipse(px2,py2,r2*stretch*0.55,r2*0.55,0,0,Math.PI*2);x.fill();
+        });
+      }
+      x.globalAlpha=1;
+      // Bright ray craters — pale blue-white streak systems (one big one).
+      for(let i=0;i<20;i++){
+        const px2=rnd()*w, py2=h*(0.10+rnd()*0.80);
+        const lat=(py2/h-0.5)*Math.PI; const stretch=Math.min(3.2,1/Math.max(0.28,Math.cos(lat)));
+        const big=i===0; const rays=big?18:7+Math.floor(rnd()*8); const len=big?h*0.32:h*(0.04+rnd()*0.10);
+        wrapX(x,w,()=>{
+          for(let k2=0;k2<rays;k2++){
+            const th=rnd()*Math.PI*2, ll=len*(0.4+rnd()*0.6);
+            x.strokeStyle=`rgba(214,226,244,${((big?0.10:0.07)+rnd()*0.06).toFixed(3)})`; x.lineWidth=0.7+rnd()*1.3;
+            x.beginPath();x.moveTo(px2,py2);x.lineTo(px2+Math.cos(th)*ll*stretch,py2+Math.sin(th)*ll);x.stroke();
+          }
+          const rr=big?9:4;
+          const g2=x.createRadialGradient(px2,py2,0,px2,py2,rr);
+          g2.addColorStop(0,'rgba(236,242,250,0.9)');g2.addColorStop(1,'rgba(236,242,250,0)');
+          x.fillStyle=g2;x.beginPath();x.ellipse(px2,py2,rr*stretch,rr,0,0,Math.PI*2);x.fill();
+        });
+      }
+      const t=track(new THREE.CanvasTexture(c));(t as any).colorSpace=THREE.SRGBColorSpace;t.needsUpdate=true;return t;
+    };
+
+    const venusProc=()=>{
+      // Magellan radar-mosaic style: amber globe, radar-dark plains, a bright
+      // fractured highland belt along the equator (Aphrodite Terra) and
+      // branching radar-bright ridge webs.
+      const w=1024,h=512,c=document.createElement('canvas');c.width=w;c.height=h;const x=c.getContext('2d')!;
+      const rnd=mkRng(80085);
+      const nProv=mkNoise(41,8), nFine=mkNoise(57,11);
+      const bw=256,bh=128,bc=document.createElement('canvas');bc.width=bw;bc.height=bh;const bx=bc.getContext('2d')!;
+      const img=bx.createImageData(bw,bh);
+      const ss=(a:number,b:number,t2:number)=>{const k=clamp((t2-a)/(b-a),0,1);return k*k*(3-2*k);};
+      for(let j=0;j<bh;j++)for(let i=0;i<bw;i++){
+        const u=i/bw, v=j/bh;
+        const belt=Math.exp(-Math.pow((v-0.5)/0.30,2)); // brighter equatorial zone
+        const p=nProv(u,v), f2=nFine(u*2,v*2);
+        let base=0.42+0.30*belt+0.16*p+0.13*f2;
+        base*=1-0.26*ss(-0.30,-0.52,p); // radar-dark plains, smooth-edged
+        base=clamp(base,0.16,1.05);
+        const o=4*(j*bw+i);
+        img.data[o]=clamp(234*base,0,255); img.data[o+1]=clamp(150*base,0,255); img.data[o+2]=clamp(44*Math.pow(base,1.5),0,255); img.data[o+3]=255;
+      }
+      bx.putImageData(img,0,0);
+      x.imageSmoothingEnabled=true; x.drawImage(bc,0,0,w,h);
+      // Aphrodite-style bright highland belt: broken chain of bright blobs on
+      // a wavy equatorial path (even longitude frequencies wrap cleanly).
+      for(let i=0;i<640;i++){
+        const u=i/640; const px2=u*w;
+        const py2=h*(0.55+0.05*Math.sin(u*Math.PI*2*2+1.2)+0.02*Math.sin(u*Math.PI*2*6+0.4));
+        if(Math.sin(u*Math.PI*2*4+0.9)<-0.55) continue;
+        const rr=3+rnd()*16;
+        wrapX(x,w,()=>{const g2=x.createRadialGradient(px2,py2,0,px2,py2,rr);
+          g2.addColorStop(0,`rgba(255,206,110,${(0.10+rnd()*0.13).toFixed(3)})`);g2.addColorStop(1,'rgba(255,206,110,0)');
+          x.fillStyle=g2;x.beginPath();x.arc(px2,py2,rr,0,Math.PI*2);x.fill();});
+      }
+      // Ishtar-style bright highland patch in the far north.
+      wrapX(x,w,()=>{const g2=x.createRadialGradient(w*0.20,h*0.14,0,w*0.20,h*0.14,w*0.06);
+        g2.addColorStop(0,'rgba(255,214,130,0.34)');g2.addColorStop(1,'rgba(255,214,130,0)');
+        x.fillStyle=g2;x.beginPath();x.ellipse(w*0.20,h*0.14,w*0.075,h*0.06,0,0,Math.PI*2);x.fill();});
+      // Radar-bright fracture webs: wandering ridge polylines.
+      const web=(sx:number,sy:number,steps:number,alpha:number)=>{
+        let px2=sx,py2=sy,th=rnd()*Math.PI*2;
+        x.strokeStyle=`rgba(255,196,96,${alpha.toFixed(3)})`; x.lineWidth=0.8+rnd()*1.4;
+        x.beginPath();x.moveTo(px2,py2);
+        for(let s2=0;s2<steps;s2++){th+=(rnd()-0.5)*0.9; px2+=Math.cos(th)*4; py2+=Math.sin(th)*2.6; x.lineTo(px2,py2);}
+        x.stroke();
+      };
+      for(let i=0;i<56;i++) wrapX(x,w,()=>web(rnd()*w,h*(0.12+rnd()*0.76),40+Math.floor(rnd()*130),0.06+rnd()*0.09));
+      // A few radial "nova" starbursts (radar-bright volcanic centers).
+      for(let i=0;i<4;i++){
+        const cx2=rnd()*w, cy2=h*(0.3+rnd()*0.4);
+        wrapX(x,w,()=>{for(let k2=0;k2<14;k2++){const th=rnd()*Math.PI*2,ll=6+rnd()*26;
+          x.strokeStyle=`rgba(255,214,120,${(0.08+rnd()*0.08).toFixed(3)})`; x.lineWidth=0.8;
+          x.beginPath();x.moveTo(cx2,cy2);x.lineTo(cx2+Math.cos(th)*ll,cy2+Math.sin(th)*ll*0.6);x.stroke();}});
+      }
+      const t=track(new THREE.CanvasTexture(c));(t as any).colorSpace=THREE.SRGBColorSpace;t.needsUpdate=true;return t;
+    };
+
+    const saturnBodyProc = () => {
+      // Cassini-portrait palette: pale butter-cream globe with SOFT banding, a
+      // subtly blue-grey north and warm butterscotch south (much gentler than
+      // Jupiter's contrasty bands).
+      const w=1024,h=512,c=document.createElement('canvas');c.width=w;c.height=h;const x=c.getContext('2d')!;
+      const rnd=mkRng(60318);
+      const g=x.createLinearGradient(0,0,0,h);
+      g.addColorStop(0.00,'#87938c');g.addColorStop(0.07,'#99a291');
+      g.addColorStop(0.16,'#b3af8b');g.addColorStop(0.28,'#cebd8e');
+      g.addColorStop(0.40,'#ddca96');g.addColorStop(0.50,'#e3d19e');
+      g.addColorStop(0.62,'#d9bf86');g.addColorStop(0.74,'#cfad72');
+      g.addColorStop(0.88,'#c29e62');g.addColorStop(1.00,'#b38e54');
+      x.fillStyle=g;x.fillRect(0,0,w,h);
+      // Soft wavy bands (even longitude frequencies -> seamless wrap).
+      for(let b=0;b<18;b++){
+        const yc=(b+0.5)/18*h, bh2=h/18*(0.5+rnd()*0.8);
+        const dark=b%2===0; const col=dark?'90,74,44':'255,246,220';
+        const a=0.045+rnd()*0.055;
+        for(let px2=0;px2<w;px2++){
+          const off=Math.sin(px2/w*Math.PI*2*2+b*1.7)*1.6+Math.sin(px2/w*Math.PI*2*4+b*0.9)*0.8;
+          x.fillStyle=`rgba(${col},${a.toFixed(3)})`;
+          x.fillRect(px2,yc-bh2/2+off,1,bh2);
+        }
+      }
+      // Very fine zonal streaks.
+      for(let i=0;i<220;i++){
+        const yy=rnd()*h; const light=rnd()<0.5;
+        x.globalAlpha=0.012+rnd()*0.03;
+        x.strokeStyle=light?'#fff8e0':'#a08850'; x.lineWidth=0.5+rnd()*1.2;
+        x.beginPath();x.moveTo(0,yy);
+        for(let px2=0;px2<=w;px2+=32) x.lineTo(px2,yy+Math.sin(px2/w*Math.PI*2*3+i)*1.2);
+        x.stroke();
+      }
+      x.globalAlpha=1;
+      // A couple of tiny pale storm ovals in the southern hemisphere.
+      for(let i=0;i<5;i++){
+        const cx2=rnd()*w, cy2=h*(0.55+rnd()*0.3), rr=1.5+rnd()*3;
+        x.globalAlpha=0.10+rnd()*0.08; x.fillStyle='#fffbe8';
+        x.beginPath();x.ellipse(cx2,cy2,rr*2.0,rr,0,0,Math.PI*2);x.fill();
+      }
+      x.globalAlpha=1;
+      const t=track(new THREE.CanvasTexture(c));(t as any).colorSpace=THREE.SRGBColorSpace;t.needsUpdate=true;return t;
     };
 
     const uranusProc = () => {
-      const w = 1024, h = 512, c = document.createElement('canvas'); c.width = w; c.height = h;
-      const x = c.getContext('2d')!;
-      // Palette sampled from the Keck/Voyager Uranus reference: a saturated teal-cyan, not pale.
-      const g = x.createLinearGradient(0, 0, 0, h);
-      g.addColorStop(0.00, '#0a6f8c'); g.addColorStop(0.22, '#0a8cb0');
-      g.addColorStop(0.50, '#0a9ac0'); g.addColorStop(0.78, '#0a8cb0');
-      g.addColorStop(1.00, '#0a6f8c');
-      x.fillStyle = g; x.fillRect(0, 0, w, h);
-      // Very subtle latitudinal banding (Uranus is nearly featureless).
-      const bands = ['#0f9bc0', '#0a86ab', '#13a4c6', '#0a86ab', '#0f9bc0'];
-      bands.forEach((col, i) => {
-        const yc = (i + 0.5) / bands.length * h, bh = h / bands.length * 0.8;
-        x.globalAlpha = 0.06; x.fillStyle = col;
-        for (let px = 0; px < w; px++) {
-          const off = Math.sin(px / w * Math.PI * 6 + i * 1.3) * 0.008 * h;
-          x.fillRect(px, yc - bh / 2 + off, 1, bh);
-        }
-      });
-      // Soft bright polar cap (Uranus's sunlit pole reads brighter in Keck/HST imagery).
-      const cap = x.createRadialGradient(w * 0.5, h * 0.06, 0, w * 0.5, h * 0.06, w * 0.32);
-      cap.addColorStop(0, 'rgba(190,240,247,0.32)'); cap.addColorStop(1, 'rgba(190,240,247,0)');
-      x.fillStyle = cap; x.fillRect(0, 0, w, h * 0.4);
-      // Discrete bright cloud spots (small methane storms), clustered as in the reference photo.
-      const uSpot = (cx: number, cy: number, r: number, a: number) => {
-        const rg = x.createRadialGradient(w * cx, h * cy, 0, w * cx, h * cy, w * r);
-        rg.addColorStop(0, `rgba(224,248,252,${a})`); rg.addColorStop(0.5, `rgba(200,242,248,${a * 0.5})`);
-        rg.addColorStop(1, 'rgba(200,242,248,0)');
-        x.fillStyle = rg; x.beginPath(); x.ellipse(w * cx, h * cy, w * r, h * r * 1.5, 0, 0, Math.PI * 2); x.fill();
-      };
-      for (const [sx, sy, sr, sa] of [
-        [0.30, 0.44, 0.016, 0.85], [0.36, 0.52, 0.011, 0.70], [0.42, 0.40, 0.009, 0.60],
-        [0.60, 0.58, 0.013, 0.80], [0.66, 0.50, 0.010, 0.65], [0.72, 0.62, 0.008, 0.55],
-        [0.84, 0.46, 0.010, 0.60], [0.20, 0.60, 0.009, 0.55], [0.50, 0.66, 0.010, 0.60],
-      ] as const) uSpot(sx, sy, sr, sa);
-      x.globalAlpha = 1;
-      // Faint wispy zonal streaks.
-      for (let i = 0; i < 90; i++) {
-        const yy = Math.random() * h;
-        x.globalAlpha = 0.012 + Math.random() * 0.025;
-        x.strokeStyle = Math.random() > 0.5 ? '#cdeff4' : '#0a7a9c';
-        x.lineWidth = 0.5 + Math.random() * 0.9;
-        x.beginPath(); x.moveTo(0, yy);
-        for (let px = 0; px <= w; px += 48) x.lineTo(px, yy + Math.sin(px / w * Math.PI * 4 + i) * 1.6);
-        x.stroke();
+      // Keck-portrait palette: bright saturated turquoise disk, a luminous
+      // polar collar, sparse white methane cloud spots — otherwise serene.
+      const w=1024,h=512,c=document.createElement('canvas');c.width=w;c.height=h;const x=c.getContext('2d')!;
+      const rnd=mkRng(70719);
+      const n1=mkNoise(91,6);
+      const bw=256,bh=128,bc=document.createElement('canvas');bc.width=bw;bc.height=bh;const bx=bc.getContext('2d')!;
+      const img=bx.createImageData(bw,bh);
+      for(let j=0;j<bh;j++)for(let i=0;i<bw;i++){
+        const u=i/bw, v=j/bh;
+        const kk=Math.sin(v*Math.PI); // 0 at poles, 1 at equator
+        const r=lerp(22,48,kk), g2=lerp(116,178,kk), b=lerp(140,202,kk);
+        const m2=1+n1(u,v)*0.05;
+        const o=4*(j*bw+i); img.data[o]=clamp(r*m2,0,255); img.data[o+1]=clamp(g2*m2,0,255); img.data[o+2]=clamp(b*m2,0,255); img.data[o+3]=255;
       }
-      x.globalAlpha = 1;
-      const t = track(new THREE.CanvasTexture(c)); (t as any).colorSpace = THREE.SRGBColorSpace; t.needsUpdate = true; return t;
+      bx.putImageData(img,0,0);
+      x.imageSmoothingEnabled=true; x.drawImage(bc,0,0,w,h);
+      // Bright polar collar + softly glowing cap (as in the Keck image).
+      let g3=x.createLinearGradient(0,h*0.72,0,h*0.92);
+      g3.addColorStop(0,'rgba(150,235,240,0)');g3.addColorStop(0.5,'rgba(160,240,244,0.20)');g3.addColorStop(1,'rgba(150,235,240,0)');
+      x.fillStyle=g3;x.fillRect(0,h*0.72,w,h*0.20);
+      g3=x.createLinearGradient(0,h*0.88,0,h);
+      g3.addColorStop(0,'rgba(120,220,232,0)');g3.addColorStop(1,'rgba(170,242,246,0.16)');
+      x.fillStyle=g3;x.fillRect(0,h*0.88,w,h*0.12);
+      // Subtle zonal banding.
+      for(let b=0;b<8;b++){
+        const yc=(b+0.5)/8*h; const a=0.03+rnd()*0.025; const light=b%2===0;
+        for(let px2=0;px2<w;px2++){
+          const off=Math.sin(px2/w*Math.PI*2*2+b*2.1)*1.4;
+          x.fillStyle=light?`rgba(210,250,252,${a.toFixed(3)})`:`rgba(20,110,140,${a.toFixed(3)})`;
+          x.fillRect(px2,yc-h*0.04+off,1,h*0.08);
+        }
+      }
+      // Discrete bright methane cloud spots.
+      for(const [sx,sy,sr,sa] of [
+        [0.24,0.30,0.012,0.75],[0.31,0.24,0.008,0.55],[0.55,0.34,0.009,0.50],
+        [0.70,0.78,0.013,0.80],[0.78,0.72,0.008,0.50],[0.12,0.70,0.009,0.55],[0.46,0.76,0.007,0.45],
+      ] as const){
+        wrapX(x,w,()=>{const rg=x.createRadialGradient(w*sx,h*sy,0,w*sx,h*sy,w*sr);
+          rg.addColorStop(0,`rgba(230,252,254,${sa})`);rg.addColorStop(0.6,`rgba(210,248,252,${sa*0.4})`);rg.addColorStop(1,'rgba(210,248,252,0)');
+          x.fillStyle=rg;x.beginPath();x.ellipse(w*sx,h*sy,w*sr*1.6,h*sr*2.2,0,0,Math.PI*2);x.fill();});
+      }
+      const t=track(new THREE.CanvasTexture(c));(t as any).colorSpace=THREE.SRGBColorSpace;t.needsUpdate=true;return t;
     };
 
     const neptuneProc = () => {
-      const w = 1024, h = 512, c = document.createElement('canvas'); c.width = w; c.height = h;
-      const x = c.getContext('2d')!;
-      // Palette sampled from the Voyager 2 Neptune reference: deep cobalt with dark-navy poles.
-      const g = x.createLinearGradient(0, 0, 0, h);
-      g.addColorStop(0.00, '#222a63'); g.addColorStop(0.16, '#2c3a90');
-      g.addColorStop(0.34, '#3649b6'); g.addColorStop(0.50, '#3a53d4');
-      g.addColorStop(0.66, '#3649b6'); g.addColorStop(0.84, '#2c3a90');
-      g.addColorStop(1.00, '#222a63');
-      x.fillStyle = g; x.fillRect(0, 0, w, h);
-      const bands = ['#2f3d97', '#3a51c4', '#3357d2', '#2d3f9c', '#3b54cc', '#283a86'];
-      bands.forEach((col, i) => {
-        const yc = (i + 0.5) / bands.length * h, bh = h / bands.length * 0.85;
-        x.globalAlpha = 0.16; x.fillStyle = col;
-        for (let px = 0; px < w; px++) {
-          const off = Math.sin(px / w * Math.PI * 4 + i * 1.1) * 0.016 * h;
-          x.fillRect(px, yc - bh / 2 + off, 1, bh);
-        }
-      });
-      x.globalAlpha = 1;
-      const drawSpot = (cx: number, cy: number, rx: number, ry: number, core: string) => {
-        x.save(); x.translate(cx, cy); x.scale(rx, ry);
-        const rg = x.createRadialGradient(0, 0, 0, 0, 0, 1);
-        rg.addColorStop(0, core); rg.addColorStop(0.6, core); rg.addColorStop(1, 'rgba(20,40,120,0)');
-        x.fillStyle = rg; x.beginPath(); x.arc(0, 0, 1, 0, Math.PI * 2); x.fill(); x.restore();
-      };
-      // Great Dark Spot + a smaller southern companion spot.
-      drawSpot(w * 0.33, h * 0.42, w * 0.085, h * 0.055, 'rgba(14,24,74,0.92)');
-      drawSpot(w * 0.66, h * 0.70, w * 0.045, h * 0.03, 'rgba(16,28,82,0.8)');
-      // Bright companion clouds ("the scooter") trailing the Great Dark Spot.
-      x.globalAlpha = 0.55; x.fillStyle = '#e2ecff';
-      for (const [sx, sy, sr] of [[0.40, 0.46, 0.020], [0.30, 0.50, 0.013], [0.22, 0.34, 0.011]] as const) {
-        x.beginPath(); x.ellipse(w * sx, h * sy, w * sr, h * sr * 0.7, 0, 0, Math.PI * 2); x.fill();
-      }
-      x.globalAlpha = 1;
-      // Bright white cirrus cloud bands — Neptune's signature high-altitude methane streaks.
-      const cirrus = [
-        { yc: 0.30, hh: 0.045, a: 0.30 }, { yc: 0.38, hh: 0.022, a: 0.22 },
-        { yc: 0.62, hh: 0.050, a: 0.32 }, { yc: 0.70, hh: 0.028, a: 0.24 },
+      // Voyager-2 portrait palette: vivid azure mid-latitudes over deep cobalt,
+      // the Great Dark Spot with its bright companion cirrus, the "Scooter",
+      // and Dark Spot 2 with a bright core.
+      const w=1024,h=512,c=document.createElement('canvas');c.width=w;c.height=h;const x=c.getContext('2d')!;
+      const rnd=mkRng(84630);
+      const n1=mkNoise(101,7), n2=mkNoise(113,10);
+      const bw=256,bh=128,bc=document.createElement('canvas');bc.width=bw;bc.height=bh;const bx=bc.getContext('2d')!;
+      const img=bx.createImageData(bw,bh);
+      const stops:[number,[number,number,number]][]= [
+        [0.00,[19,26,84]],[0.18,[34,52,152]],[0.36,[46,74,202]],[0.50,[56,92,222]],
+        [0.62,[44,70,196]],[0.80,[30,46,142]],[1.00,[16,22,74]],
       ];
-      cirrus.forEach((b, bi) => {
-        for (let px = 0; px < w; px++) {
-          const wob = Math.sin(px / w * Math.PI * 6 + bi * 2.1) * 0.012 * h;
-          const dab = 0.5 + 0.5 * Math.sin(px / w * Math.PI * 18 + bi * 3.7); // broken / patchy
-          x.globalAlpha = b.a * dab; x.fillStyle = '#eaf1ff';
-          x.fillRect(px, b.yc * h - b.hh * h / 2 + wob, 1, b.hh * h);
-        }
-      });
-      x.globalAlpha = 1;
-      // Fine wispy streaks for surface texture.
-      for (let i = 0; i < 80; i++) {
-        const yy = Math.random() * h;
-        x.globalAlpha = 0.04 + Math.random() * 0.10;
-        x.strokeStyle = Math.random() > 0.35 ? '#cfe0ff' : '#ffffff';
-        x.lineWidth = 0.6 + Math.random() * 1.6;
-        x.beginPath(); x.moveTo(0, yy);
-        for (let px = 0; px <= w; px += 40) x.lineTo(px, yy + Math.sin(px / w * Math.PI * 6 + i) * 2.6);
-        x.stroke();
+      const at=(v:number):[number,number,number]=>{
+        for(let s2=0;s2<stops.length-1;s2++){const [v0,c0]=stops[s2],[v1,c1]=stops[s2+1];
+          if(v<=v1){const k=(v-v0)/(v1-v0); return [lerp(c0[0],c1[0],k),lerp(c0[1],c1[1],k),lerp(c0[2],c1[2],k)];}}
+        return stops[stops.length-1][1];
+      };
+      for(let j=0;j<bh;j++)for(let i=0;i<bw;i++){
+        const u=i/bw, v=j/bh; const [r,g2,b]=at(v);
+        const m2=1+n1(u,v)*0.09+n2(u*2,v*2)*0.04;
+        const o=4*(j*bw+i); img.data[o]=clamp(r*m2,0,255); img.data[o+1]=clamp(g2*m2,0,255); img.data[o+2]=clamp(b*m2,0,255); img.data[o+3]=255;
       }
-      x.globalAlpha = 1;
-      const t = track(new THREE.CanvasTexture(c)); (t as any).colorSpace = THREE.SRGBColorSpace; t.needsUpdate = true; return t;
+      bx.putImageData(img,0,0);
+      x.imageSmoothingEnabled=true; x.drawImage(bc,0,0,w,h);
+      // Great Dark Spot (~22°S) with soft edges and bright cirrus hooking
+      // around its southern rim (as in the Voyager portrait).
+      wrapX(x,w,()=>{
+        const cx2=w*0.40, cy2=h*0.62, rx=w*0.062, ry=h*0.055;
+        x.save();x.translate(cx2,cy2);x.scale(rx,ry);
+        const rg=x.createRadialGradient(0,0,0,0,0,1);
+        rg.addColorStop(0,'rgba(13,22,74,0.95)');rg.addColorStop(0.55,'rgba(16,26,84,0.85)');rg.addColorStop(1,'rgba(16,26,84,0)');
+        x.fillStyle=rg;x.beginPath();x.arc(0,0,1,0,Math.PI*2);x.fill();x.restore();
+        for(let k2=0;k2<26;k2++){
+          const th=Math.PI*(0.15+0.7*(k2/26));
+          const px2=cx2+Math.cos(th)*rx*1.15, py2=cy2+Math.sin(th)*ry*1.35+ry*0.25;
+          x.globalAlpha=0.10+0.30*Math.sin(k2/26*Math.PI); x.fillStyle='#f2f6ff';
+          x.beginPath();x.ellipse(px2,py2,3+rnd()*7,1.2+rnd()*2.2,0,0,Math.PI*2);x.fill();
+        }
+        x.globalAlpha=1;
+      });
+      // "Scooter" — the small fast bright cloud south of the GDS.
+      wrapX(x,w,()=>{const rg=x.createRadialGradient(w*0.52,h*0.72,0,w*0.52,h*0.72,w*0.016);
+        rg.addColorStop(0,'rgba(238,244,255,0.8)');rg.addColorStop(1,'rgba(238,244,255,0)');
+        x.fillStyle=rg;x.beginPath();x.ellipse(w*0.52,h*0.72,w*0.020,h*0.014,0,0,Math.PI*2);x.fill();});
+      // Dark Spot 2 with its bright core.
+      wrapX(x,w,()=>{
+        const cx2=w*0.68, cy2=h*0.80;
+        x.save();x.translate(cx2,cy2);x.scale(w*0.026,h*0.020);
+        const rg=x.createRadialGradient(0,0,0,0,0,1);
+        rg.addColorStop(0,'rgba(14,22,72,0.85)');rg.addColorStop(1,'rgba(14,22,72,0)');
+        x.fillStyle=rg;x.beginPath();x.arc(0,0,1,0,Math.PI*2);x.fill();x.restore();
+        const rg2=x.createRadialGradient(cx2,cy2,0,cx2,cy2,w*0.008);
+        rg2.addColorStop(0,'rgba(240,246,255,0.75)');rg2.addColorStop(1,'rgba(240,246,255,0)');
+        x.fillStyle=rg2;x.beginPath();x.arc(cx2,cy2,w*0.008,0,Math.PI*2);x.fill();
+      });
+      // Long thin white cirrus streaks, patchy, in a few latitude bands.
+      const cirrus=(yc:number,count:number)=>{
+        for(let i=0;i<count;i++){
+          const u0=rnd(), len=0.04+rnd()*0.10; const py0=h*(yc+(rnd()-0.5)*0.05);
+          const alpha=0.10+rnd()*0.22, lw=1+rnd()*2.2;
+          wrapX(x,w,()=>{
+            x.beginPath();
+            for(let s2=0;s2<=16;s2++){const uu=u0+len*(s2/16); const px2=uu*w;
+              const py2=py0+Math.sin(uu*Math.PI*2*6+i)*2.5;
+              if(s2===0)x.moveTo(px2,py2);else x.lineTo(px2,py2);}
+            x.strokeStyle=`rgba(200,216,255,0.05)`;x.lineWidth=lw+3;x.stroke();
+            x.strokeStyle=`rgba(236,242,255,${alpha.toFixed(3)})`;x.lineWidth=lw;x.stroke();
+          });
+        }
+      };
+      cirrus(0.33,10); cirrus(0.42,6); cirrus(0.68,8);
+      const t=track(new THREE.CanvasTexture(c));(t as any).colorSpace=THREE.SRGBColorSpace;t.needsUpdate=true;return t;
     };
 
     for(const p of PLANETS){
@@ -682,7 +879,7 @@ export default function SolarHarmonics3D(){
       scene.add(m);
 
       if (p === 'Saturn') {
-        const ringInner = R.Saturn*1.20, ringOuter = R.Saturn*2.27;
+        const ringInner = R.Saturn*1.20, ringOuter = R.Saturn*2.33; // out to the thin F ring
         const rg = new THREE.RingGeometry(ringInner, ringOuter, 256);
         // Remap UVs so the radial direction samples the ring strip texture (inner->outer = u 0->1)
         const ringPos = rg.attributes.position;
@@ -694,12 +891,12 @@ export default function SolarHarmonics3D(){
           ringUv.setXY(i, u, 0.5);
         }
         ringUv.needsUpdate = true;
+        // The hand-built ring strip is far more detailed than the old CDN ring
+        // textures, so nothing overrides it anymore.
         const rm = new THREE.MeshBasicMaterial({map: saturnRingProc(), transparent: true, side: THREE.DoubleSide, depthWrite: false});
         const rings = new THREE.Mesh(rg, rm);
         rings.rotation.x = Math.PI/2;
         m.add(rings);
-        loadFirst([SATURN_RING_COLOR_URL], (tex) => { (tex as any).colorSpace = THREE.SRGBColorSpace; rm.map = tex; rm.needsUpdate = true; });
-        loadFirst([SATURN_RING_ALPHA_URL], (tex) => { rm.alphaMap = tex; rm.transparent = true; rm.needsUpdate = true; });
       }
 
       if (p === 'Uranus') {
