@@ -5,6 +5,7 @@
   "scripts": {
     "preinstall": "sh -c 'rm -f package-lock.json yarn.lock; case \"$npm_config_user_agent\" in pnpm/*) ;; *) echo \"Use pnpm instead\" >&2; exit 1 ;; esac'",
     "build": "pnpm run typecheck && pnpm -r --if-present run build",
+    "build:pages": "PORT=4173 BASE_PATH=/SolarHarmonicsConsole/ pnpm --filter @workspace/solar-sim run build && rm -rf assets && cp -r artifacts/solar-sim/dist/public/assets assets && cp artifacts/solar-sim/dist/public/index.html index.html && cp artifacts/solar-sim/dist/public/favicon.svg favicon.svg && cp artifacts/solar-sim/dist/public/opengraph.jpg opengraph.jpg && touch .nojekyll",
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
   },
