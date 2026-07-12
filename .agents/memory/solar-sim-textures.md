@@ -17,13 +17,13 @@ canvas textures as a last-resort fallback.
 - **Use jsdelivr-served GitHub repos for equirectangular maps** — they return real JPEGs with
   `access-control-allow-origin: *`. Verified working base:
   `https://cdn.jsdelivr.net/gh/jeromeetienne/threex.planets@master/images/`
-  with files: `venusmap.jpg`, `marsmap1k.jpg`, `jupitermap.jpg`, `plutomap1k.jpg` (the four used).
-  Mercury, Saturn (body AND rings), Uranus, Neptune are hand-built procedural maps modeled on NASA
-  reference photos (MESSENGER enhanced color / Cassini portrait / Keck / Voyager 2) — the CDN
-  versions of those looked worse and must NOT be re-added as overrides, since `loadFirst` would
-  clobber the procedurals asynchronously. Venus is the exception: the USER PREFERS the classic
-  creamy cloud-deck look (CDN venusmap over a matching cloudy procedural fallback), NOT the
-  Magellan radar surface — don't bring the orange radar Venus back.
+  with files: `venusmap.jpg`, `marsmap1k.jpg`, `jupitermap.jpg` (the three used).
+  Mercury, Saturn (body AND rings), Uranus, Neptune, Pluto are hand-built procedural maps modeled
+  on NASA reference photos (MESSENGER enhanced color / Cassini portrait / Keck / Voyager 2 /
+  New Horizons) — the CDN versions of those looked worse and must NOT be re-added as overrides,
+  since `loadFirst` would clobber the procedurals asynchronously. Venus is the exception: the USER
+  PREFERS the classic creamy cloud-deck look (CDN venusmap over a matching cloudy procedural
+  fallback), NOT the Magellan radar surface — don't bring the orange radar Venus back.
 
 ## Belt/flare particles must depth-test (planets looked transparent)
 The belt Points shader and the sun-flare sprites originally used `depthTest:false`, which drew
@@ -58,9 +58,21 @@ The threex.planets `uranusmap.jpg` (~8KB) and `neptunemap.jpg` (~48KB) are near-
 Real Uranus/Neptune photos are nearly featureless anyway, so hand-built procedural canvas
 textures (latitudinal gradient + wavy bands + cloud streaks; Neptune adds a Great Dark Spot)
 look better and are 100% CORS-reliable. These two are now generated procedurally and are NOT in
-`CDN_TEX_URLS`. Jupiter/Saturn/Pluto still load real CDN maps over a procedural fallback.
+`CDN_TEX_URLS`. Jupiter still loads a real CDN map over a procedural fallback. Pluto is also
+fully procedural now (New Horizons look: Sputnik heart, Cthulhu Macula, gold north, craters,
+fracture troughs) — the 1k CDN plutomap was far below the user's requested quality.
 **Why:** real textures only beat procedural when they carry real detail; for featureless gas
 giants a tiny photo is worse than a crafted procedural.
+
+## Custom ShaderMaterial output MUST end with the tonemapping/colorspace chunks
+Pluto's limb-darkening `ShaderMaterial` initially rendered the authored texture far too dark:
+raw ShaderMaterial writes gl_FragColor as-is, skipping the ACES tone map + linear→sRGB output
+encode that built-in materials (MeshBasicMaterial) append. Since the sampled sRGB texture is
+hardware-decoded to LINEAR, the un-encoded output loses the gamma curve entirely. Fix: end the
+fragment shader with `#include <tonemapping_fragment>` and `#include <colorspace_fragment>`
+(three r154+ chunk names) so the pipeline matches the built-ins and authored colors survive.
+The existing Earth/LIT shaders don't include them — their textures were tuned under that darker
+pipeline and the user approved the look, so leave them alone; use the chunks for NEW shaders.
 
 ## Equirectangular procedural seam rule
 For a procedural texture mapped onto a sphere (full longitude wrap), any sine wave drawn across
@@ -112,7 +124,8 @@ faint C ring → bright dense B ring → Cassini Division gap (~u 0.70–0.77) �
 Outer planets use `MeshBasicMaterial` (unlit) so they render full-bright and look self-illuminated
 ("as bright as the Sun"). To dim without switching to a lit material (the scene PointLight is ~0 at
 those distances), set `material.color.setScalar(k)` with k<1 — it multiplies the map, including any
-CDN texture swapped in asynchronously later. ~0.82 ≈ 18% dimmer. Keep Pluto lighter (~0.90) so the
+CDN texture swapped in asynchronously later. ~0.82 ≈ 18% dimmer. Pluto now has its own
+limb-darkening ShaderMaterial with a `uDim` uniform (0.95, kept lighter than 0.82) so the
 hard-won visibility fix above isn't undone.
 
 ## Making a ring look vertical (Uranus) — tilt the whole body, not just the ring
