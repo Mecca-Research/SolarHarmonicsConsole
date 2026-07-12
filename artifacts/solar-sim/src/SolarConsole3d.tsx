@@ -1109,50 +1109,39 @@ export default function SolarHarmonics3D(){
       sky.add(pts); skyMats.push(mat);
     };
     const tinyStarTex=mkTinyStarTex();
-    starLayer(15000, 2.2, tinyStarTex,        0.95, 0.42, 501); // dense faint field
-    starLayer(3500,  3.2, tinyStarTex,        1.00, 0.40, 504); // small stars
-    starLayer(1300,  4.6, mkStarGlowTex(false),1.00, 0.35, 502); // mid stars
-    starLayer(140,   8.5, mkStarGlowTex(true), 1.00, 0.25, 503); // bright stars w/ spikes
-    // Faint Milky Way ribbon: soft nebulosity + star dust + dark dust lanes,
-    // painted on the inside of a slightly larger sky sphere.
-    const mkNebulaTex=()=>{
-      // Painted at quarter res and upscaled with smoothing so the nebulosity
-      // is soft (no pixel blocks), then fine star dust at full resolution.
-      // Deliberately FAINT: the band must never pollute the system with light.
-      const w=2048,h=1024,c=document.createElement('canvas');c.width=w;c.height=h;
-      const x=c.getContext('2d')!;
-      const bw=512,bh=256,bc=document.createElement('canvas');bc.width=bw;bc.height=bh;const bx=bc.getContext('2d')!;
-      const rnd=mkRng(707);
-      const g0=(v:number)=>Math.exp(-Math.pow((v-0.5)/0.10,2));
-      for(let i=0;i<520;i++){
-        const px2=rnd()*bw, py2=bh*(0.5+(rnd()+rnd()+rnd()-1.5)/1.5*0.14);
-        const rr=10+rnd()*44, a=(0.020+rnd()*0.035)*g0(py2/bh);
-        const warm=rnd()<0.18;
-        const rg=bx.createRadialGradient(px2,py2,0,px2,py2,rr);
-        rg.addColorStop(0,warm?`rgba(214,198,172,${a.toFixed(3)})`:`rgba(158,178,216,${a.toFixed(3)})`);
-        rg.addColorStop(1,'rgba(158,178,216,0)');
-        bx.fillStyle=rg;bx.beginPath();bx.ellipse(px2,py2,rr*1.8,rr*0.8,0,0,Math.PI*2);bx.fill();
+    starLayer(15000, 2.2, tinyStarTex,        0.95, 0.34, 501); // dense faint field
+    starLayer(3500,  3.2, tinyStarTex,        1.00, 0.30, 504); // small stars
+    starLayer(1300,  4.6, mkStarGlowTex(false),1.00, 0.28, 502); // mid stars
+    starLayer(140,   8.5, mkStarGlowTex(true), 1.00, 0.22, 503); // bright stars w/ spikes
+    // Granular Milky Way: thousands of ultra-faint point stars clustered
+    // along the band (with brighter clumps for structure). Pure starlight —
+    // there is deliberately NO gradient texture surface anywhere in the sky,
+    // because soft 8-bit gradients band into stripes and wash the scene with
+    // light. Density carries the grand scale; individual points stay dim.
+    {
+      const rnd=mkRng(509);
+      const g=(s:number)=>(rnd()+rnd()+rnd()-1.5)/1.5*s;
+      const n=7000;
+      const pos=new Float32Array(n*3), col=new Float32Array(n*3);
+      const v=new THREE.Vector3();
+      const clumps:number[]=[]; for(let k=0;k<12;k++) clumps.push(rnd()*Math.PI*2);
+      for(let i2=0;i2<n;i2++){
+        const th=rnd()<0.55?rnd()*Math.PI*2:clumps[Math.floor(rnd()*12)]+g(0.55);
+        const lat=g(0.11);
+        v.set(Math.cos(th)*Math.cos(lat), Math.sin(lat), Math.sin(th)*Math.cos(lat)).applyEuler(bandEuler);
+        pos[3*i2]=v.x*SKY_R; pos[3*i2+1]=v.y*SKY_R; pos[3*i2+2]=v.z*SKY_R;
+        const b=0.08+Math.pow(rnd(),2)*0.20;
+        const warm=rnd()<0.25;
+        col[3*i2]=b*(warm?1:0.9); col[3*i2+1]=b*0.95; col[3*i2+2]=b*(warm?0.85:1);
       }
-      for(let i=0;i<70;i++){
-        const px2=rnd()*bw, py2=bh*(0.5+(rnd()-0.5)*0.10), rr=8+rnd()*24;
-        const a=0.05+rnd()*0.06;
-        const rg=bx.createRadialGradient(px2,py2,0,px2,py2,rr);
-        rg.addColorStop(0,`rgba(4,5,9,${a.toFixed(3)})`); rg.addColorStop(1,'rgba(4,5,9,0)');
-        bx.fillStyle=rg;bx.beginPath();bx.ellipse(px2,py2,rr*2.4,rr*0.6,0,0,Math.PI*2);bx.fill();
-      }
-      x.imageSmoothingEnabled=true; x.drawImage(bc,0,0,w,h);
-      for(let i=0;i<7000;i++){
-        const px2=rnd()*w, py2=h*(0.5+(rnd()+rnd()+rnd()-1.5)/1.5*0.13);
-        x.fillStyle=`rgba(226,232,244,${((0.05+rnd()*0.10)*g0(py2/h)).toFixed(3)})`;
-        x.fillRect(px2,py2,1,1);
-      }
-      const t=track(new THREE.CanvasTexture(c)); (t as any).colorSpace=THREE.SRGBColorSpace; t.needsUpdate=true; return t;
-    };
-    const nebulaMat=new THREE.MeshBasicMaterial({map:mkNebulaTex(),transparent:true,opacity:0.22,side:THREE.BackSide,depthWrite:false});
-    (nebulaMat as any).userData={baseOp:0.22};
-    const nebula=new THREE.Mesh(new THREE.SphereGeometry(SKY_R*1.05,48,24),nebulaMat);
-    nebula.setRotationFromEuler(bandEuler); nebula.renderOrder=-2; nebula.frustumCulled=false;
-    sky.add(nebula); skyMats.push(nebulaMat);
+      const geo=new THREE.BufferGeometry();
+      geo.setAttribute('position',new THREE.BufferAttribute(pos,3));
+      geo.setAttribute('color',new THREE.BufferAttribute(col,3));
+      const mat=new THREE.PointsMaterial({map:tinyStarTex,size:1.3*(renderer.getPixelRatio?.()||1),sizeAttenuation:false,transparent:true,vertexColors:true,depthWrite:false,blending:THREE.AdditiveBlending});
+      mat.toneMapped=false; mat.opacity=0.9; (mat as any).userData={baseOp:0.9};
+      const pts=new THREE.Points(geo,mat); pts.frustumCulled=false; pts.renderOrder=-1;
+      sky.add(pts); skyMats.push(mat);
+    }
     const skyFwd=new THREE.Vector3(), skyToSun=new THREE.Vector3();
 
     let drag=false,lx=0,ly=0; const md=(e:MouseEvent)=>{if(e.button!==0)return; drag=true; lx=e.clientX; ly=e.clientY}; const mm=(e:MouseEvent)=>{if(!drag)return; const dx=e.clientX-lx, dy=e.clientY-ly; lx=e.clientX; ly=e.clientY; const f=focusRef.current; if(f){f.yaw-=dx*.005; f.pitch=clamp(f.pitch+dy*.005,-1.35,1.35);}else{yawRef.current-=dx*.005; pitchRef.current=clamp(pitchRef.current+dy*.005,0,1.52); distRef.current=clamp(distRef.current*(1+dy*.002),50,30000);}}; const onUp=()=>{drag=false}; const wheel=(e:WheelEvent)=>{const f=focusRef.current; if(f){f.dist=clamp(f.dist*(e.deltaY>0?1.1:0.9),f.minDist,f.maxDist);}else{distRef.current=clamp(distRef.current*(e.deltaY>0?1.1:0.9),50,30000);}};
@@ -1371,9 +1360,6 @@ export default function SolarHarmonics3D(){
       sky.position.copy(cam.position).multiplyScalar(0.55);
       {
         const camDist=cam.position.length();
-        // more prominent as the solar system shrinks on screen — continuous
-        // over the WHOLE zoom range (log curve), so the feel keeps changing
-        const zoomBoost=clamp(Math.log10(Math.max(camDist,100)/600)/1.7,0,1);
         // fade against the Sun's light: facing it and/or close enough that
         // its glare dominates the frame
         cam.getWorldDirection(skyFwd);
@@ -1384,7 +1370,10 @@ export default function SolarHarmonics3D(){
         // ease off a touch when a focused planet fills the frame
         const fc=focusRef.current;
         const occl=fc?clamp(bodyRadius(fc.name)*2.2/fc.dist,0,1)*0.18:0;
-        const starI=(0.85+0.15*zoomBoost)*(1-0.85*glare)*(1-occl);
+        // Constant base prominence: the sky stays as subtle fully zoomed out
+        // as it is in the mid view — no zoom flood. Only sun glare and
+        // focused-planet coverage modulate it (parallax supplies the motion).
+        const starI=0.92*(1-0.85*glare)*(1-occl);
         for(const m2 of skyMats) m2.opacity=((m2 as any).userData.baseOp||1)*starI;
       }
       // asteroid tumble clock (wall time, so it stays smooth at any sim speed)
