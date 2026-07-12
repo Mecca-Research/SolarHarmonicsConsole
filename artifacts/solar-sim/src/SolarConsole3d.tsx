@@ -1052,96 +1052,107 @@ export default function SolarHarmonics3D(){
     const sky = new THREE.Group(); scene.add(sky);
     // Band (Milky Way) orientation — tilted like the real galactic plane.
     const bandEuler = new THREE.Euler(rad(62), 0, rad(23));
-    const mkStarGlowTex = (spikes:boolean) => {
+    // ---- Photoreal star rendering -----------------------------------------
+    // Every star is a soft gaussian point-spread function (computed per pixel,
+    // never a hard-edged disc), with a CONTINUOUS power-law mix of sizes and
+    // brightness in a single draw call. Stars smaller than ~1.8px render as
+    // dimmer (not smaller) soft specks — the classic PSF trick that removes
+    // all hard single-pixel "screensaver" dots.
+    const mkGaussTex=()=>{
       const s=64, c=document.createElement('canvas'); c.width=c.height=s;
-      const x=c.getContext('2d')!;
-      const g=x.createRadialGradient(s/2,s/2,0,s/2,s/2,s/2);
-      g.addColorStop(0,'rgba(255,255,255,1)'); g.addColorStop(0.25,'rgba(255,255,255,0.55)');
-      g.addColorStop(0.6,'rgba(255,255,255,0.12)'); g.addColorStop(1,'rgba(255,255,255,0)');
-      x.fillStyle=g; x.fillRect(0,0,s,s);
-      if(spikes){
-        x.strokeStyle='rgba(255,255,255,0.35)'; x.lineWidth=1.2;
-        x.beginPath(); x.moveTo(s/2,2); x.lineTo(s/2,s-2); x.moveTo(2,s/2); x.lineTo(s-2,s/2); x.stroke();
+      const x=c.getContext('2d')!; const img=x.createImageData(s,s);
+      for(let py2=0;py2<s;py2++)for(let px2=0;px2<s;px2++){
+        const dx=(px2+0.5)/s-0.5, dy=(py2+0.5)/s-0.5;
+        const r=Math.sqrt(dx*dx+dy*dy)*2; // 1 at edge
+        const a=Math.exp(-Math.pow(r*2.2,2));
+        const o=4*(py2*s+px2); img.data[o]=img.data[o+1]=img.data[o+2]=255; img.data[o+3]=Math.round(a*255);
       }
-      const t=track(new THREE.CanvasTexture(c)); (t as any).colorSpace=THREE.SRGBColorSpace; t.needsUpdate=true; return t;
+      x.putImageData(img,0,0);
+      const t=track(new THREE.CanvasTexture(c)); t.needsUpdate=true; return t;
     };
-    const mkTinyStarTex=()=>{
-      const s=32, c=document.createElement('canvas'); c.width=c.height=s;
-      const x=c.getContext('2d')!;
-      const g=x.createRadialGradient(s/2,s/2,0,s/2,s/2,s/2);
-      g.addColorStop(0,'rgba(255,255,255,1)'); g.addColorStop(0.4,'rgba(255,255,255,0.95)');
-      g.addColorStop(0.7,'rgba(255,255,255,0.3)'); g.addColorStop(1,'rgba(255,255,255,0)');
-      x.fillStyle=g; x.fillRect(0,0,s,s);
-      const t=track(new THREE.CanvasTexture(c)); (t as any).colorSpace=THREE.SRGBColorSpace; t.needsUpdate=true; return t;
+    const mkBrightStarTex=()=>{
+      const s=128, half=s/2, c=document.createElement('canvas'); c.width=c.height=s;
+      const x=c.getContext('2d')!; const img=x.createImageData(s,s);
+      for(let py2=0;py2<s;py2++)for(let px2=0;px2<s;px2++){
+        const dx=px2+0.5-half, dy=py2+0.5-half;
+        const r=Math.sqrt(dx*dx+dy*dy)/half; // 1 at edge
+        let a=Math.exp(-Math.pow(r*2.8,2))          // tight core
+             +0.28*Math.exp(-Math.pow(r*1.15,2));   // soft halo
+        // faint 4-point diffraction spikes
+        a+=0.40*Math.exp(-(dy*dy)/(2*1.2*1.2))*Math.exp(-Math.abs(dx)/(half*0.38));
+        a+=0.40*Math.exp(-(dx*dx)/(2*1.2*1.2))*Math.exp(-Math.abs(dy)/(half*0.38));
+        const o=4*(py2*s+px2); img.data[o]=img.data[o+1]=img.data[o+2]=255; img.data[o+3]=Math.round(Math.min(1,a)*255);
+      }
+      x.putImageData(img,0,0);
+      const t=track(new THREE.CanvasTexture(c)); t.needsUpdate=true; return t;
     };
-    const skyMats: (THREE.PointsMaterial|THREE.MeshBasicMaterial)[] = [];
-    const starLayer=(n:number,sizePx:number,tex:THREE.Texture,baseOp:number,bandFrac:number,seed:number)=>{
+    const STAR_VERT=`
+      attribute float aSize; attribute vec3 color;
+      varying vec3 vColor; varying float vFade;
+      uniform float uPx;
+      void main(){
+        vColor=color;
+        float s=max(aSize,1.8);
+        vFade=pow(clamp(aSize/1.8,0.35,1.0),1.1);
+        gl_PointSize=s*uPx;
+        gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);
+      }
+    `;
+    const STAR_FRAG=`
+      uniform sampler2D uMap; uniform float uOpacity;
+      varying vec3 vColor; varying float vFade;
+      void main(){
+        vec4 tex=texture2D(uMap,gl_PointCoord);
+        gl_FragColor=vec4(vColor*tex.a, tex.a*vFade*uOpacity);
+      }
+    `;
+    const skyMats: THREE.ShaderMaterial[] = [];
+    const starField=(n:number,seed:number,bandFrac:number,tex:THREE.Texture,baseOp:number,sizeFn:(r:()=>number)=>number)=>{
       const rnd=mkRng(seed);
-      const rnd2=()=>{ // gaussian-ish
-        return (rnd()+rnd()+rnd()-1.5)/1.5;
-      };
-      const pos=new Float32Array(n*3), col=new Float32Array(n*3);
+      const g=(s:number)=>(rnd()+rnd()+rnd()-1.5)/1.5*s;
+      const pos=new Float32Array(n*3), col=new Float32Array(n*3), siz=new Float32Array(n);
       const v=new THREE.Vector3();
-      for(let i=0;i<n;i++){
+      const clumps:number[]=[]; for(let k=0;k<12;k++) clumps.push(rnd()*Math.PI*2);
+      let sMin=1e9,sMax=0; const raw:number[]=[];
+      for(let i2=0;i2<n;i2++){ const s2=sizeFn(rnd); raw.push(s2); if(s2<sMin)sMin=s2; if(s2>sMax)sMax=s2; }
+      for(let i2=0;i2<n;i2++){
         if(rnd()<bandFrac){
-          // clustered near the galactic band plane
-          const th=rnd()*Math.PI*2, lat=rnd2()*0.16;
+          const th=rnd()<0.6?rnd()*Math.PI*2:clumps[Math.floor(rnd()*12)]+g(0.55);
+          const lat=g(rnd()<0.5?0.11:0.17);
           v.set(Math.cos(th)*Math.cos(lat), Math.sin(lat), Math.sin(th)*Math.cos(lat)).applyEuler(bandEuler);
         }else{
           const u=rnd(), w2=rnd(); const th=2*Math.PI*u, ph=Math.acos(2*w2-1);
           v.set(Math.sin(ph)*Math.cos(th), Math.cos(ph), Math.sin(ph)*Math.sin(th));
         }
-        pos[3*i]=v.x*SKY_R; pos[3*i+1]=v.y*SKY_R; pos[3*i+2]=v.z*SKY_R;
-        // realistic temperature mix: mostly white, some warm, some blue-white
+        pos[3*i2]=v.x*SKY_R; pos[3*i2+1]=v.y*SKY_R; pos[3*i2+2]=v.z*SKY_R;
+        // realistic temperature mix: mostly white/blue-white, some warm
         const t2=rnd(); let r2:number,g2:number,b2:number;
-        if(t2<0.10){r2=1;g2=0.76;b2=0.58;} else if(t2<0.28){r2=1;g2=0.92;b2=0.80;}
-        else if(t2<0.74){r2=1;g2=1;b2=1;} else {r2=0.78;g2=0.87;b2=1;}
-        const bright=0.6+Math.pow(rnd(),1.5)*0.4;
-        col[3*i]=r2*bright; col[3*i+1]=g2*bright; col[3*i+2]=b2*bright;
+        if(t2<0.10){r2=1;g2=0.74;b2=0.55;} else if(t2<0.28){r2=1;g2=0.90;b2=0.76;}
+        else if(t2<0.72){r2=1;g2=1;b2=1;} else {r2=0.74;g2=0.85;b2=1;}
+        const s2=raw[i2]; siz[i2]=s2;
+        // brightness rises with size (real PSF behavior), with scatter
+        const k3=(s2-sMin)/Math.max(1e-6,sMax-sMin);
+        const bright=(0.50+0.50*Math.pow(k3,0.75))*(0.62+0.38*rnd());
+        col[3*i2]=r2*bright; col[3*i2+1]=g2*bright; col[3*i2+2]=b2*bright;
       }
       const geo=new THREE.BufferGeometry();
       geo.setAttribute('position',new THREE.BufferAttribute(pos,3));
       geo.setAttribute('color',new THREE.BufferAttribute(col,3));
-      const mat=new THREE.PointsMaterial({map:tex,size:sizePx*(renderer.getPixelRatio?.()||1),sizeAttenuation:false,transparent:true,vertexColors:true,depthWrite:false,blending:THREE.AdditiveBlending});
-      mat.toneMapped=false; // keep stars crisp — ACES tone mapping crushes them
-      mat.opacity=baseOp; (mat as any).userData={baseOp};
+      geo.setAttribute('aSize',new THREE.BufferAttribute(siz,1));
+      const mat=new THREE.ShaderMaterial({
+        vertexShader:STAR_VERT, fragmentShader:STAR_FRAG, transparent:true,
+        depthWrite:false, depthTest:true, blending:THREE.AdditiveBlending,
+        uniforms:{uMap:{value:tex}, uOpacity:{value:baseOp}, uPx:{value:renderer.getPixelRatio?.()||1}},
+      });
+      (mat as any).userData={baseOp};
       const pts=new THREE.Points(geo,mat); pts.frustumCulled=false; pts.renderOrder=-1;
       sky.add(pts); skyMats.push(mat);
     };
-    const tinyStarTex=mkTinyStarTex();
-    starLayer(15000, 2.2, tinyStarTex,        0.95, 0.34, 501); // dense faint field
-    starLayer(3500,  3.2, tinyStarTex,        1.00, 0.30, 504); // small stars
-    starLayer(1300,  4.6, mkStarGlowTex(false),1.00, 0.28, 502); // mid stars
-    starLayer(140,   8.5, mkStarGlowTex(true), 1.00, 0.22, 503); // bright stars w/ spikes
-    // Granular Milky Way: thousands of ultra-faint point stars clustered
-    // along the band (with brighter clumps for structure). Pure starlight —
-    // there is deliberately NO gradient texture surface anywhere in the sky,
-    // because soft 8-bit gradients band into stripes and wash the scene with
-    // light. Density carries the grand scale; individual points stay dim.
-    {
-      const rnd=mkRng(509);
-      const g=(s:number)=>(rnd()+rnd()+rnd()-1.5)/1.5*s;
-      const n=7000;
-      const pos=new Float32Array(n*3), col=new Float32Array(n*3);
-      const v=new THREE.Vector3();
-      const clumps:number[]=[]; for(let k=0;k<12;k++) clumps.push(rnd()*Math.PI*2);
-      for(let i2=0;i2<n;i2++){
-        const th=rnd()<0.55?rnd()*Math.PI*2:clumps[Math.floor(rnd()*12)]+g(0.55);
-        const lat=g(0.11);
-        v.set(Math.cos(th)*Math.cos(lat), Math.sin(lat), Math.sin(th)*Math.cos(lat)).applyEuler(bandEuler);
-        pos[3*i2]=v.x*SKY_R; pos[3*i2+1]=v.y*SKY_R; pos[3*i2+2]=v.z*SKY_R;
-        const b=0.08+Math.pow(rnd(),2)*0.20;
-        const warm=rnd()<0.25;
-        col[3*i2]=b*(warm?1:0.9); col[3*i2+1]=b*0.95; col[3*i2+2]=b*(warm?0.85:1);
-      }
-      const geo=new THREE.BufferGeometry();
-      geo.setAttribute('position',new THREE.BufferAttribute(pos,3));
-      geo.setAttribute('color',new THREE.BufferAttribute(col,3));
-      const mat=new THREE.PointsMaterial({map:tinyStarTex,size:1.3*(renderer.getPixelRatio?.()||1),sizeAttenuation:false,transparent:true,vertexColors:true,depthWrite:false,blending:THREE.AdditiveBlending});
-      mat.toneMapped=false; mat.opacity=0.9; (mat as any).userData={baseOp:0.9};
-      const pts=new THREE.Points(geo,mat); pts.frustumCulled=false; pts.renderOrder=-1;
-      sky.add(pts); skyMats.push(mat);
-    }
+    // Main field: dense, mostly sub-2px soft specks with a continuous tail of
+    // larger stars (power law) — includes the granular Milky Way clustering.
+    starField(34000, 501, 0.45, mkGaussTex(), 0.95, r=>1.3+4.7*Math.pow(r(),2.8));
+    // Bright stars: gaussian core + soft halo + faint diffraction spikes.
+    starField(300, 503, 0.25, mkBrightStarTex(), 1.0, r=>5.0+9.0*Math.pow(r(),2.2));
     const skyFwd=new THREE.Vector3(), skyToSun=new THREE.Vector3();
 
     let drag=false,lx=0,ly=0; const md=(e:MouseEvent)=>{if(e.button!==0)return; drag=true; lx=e.clientX; ly=e.clientY}; const mm=(e:MouseEvent)=>{if(!drag)return; const dx=e.clientX-lx, dy=e.clientY-ly; lx=e.clientX; ly=e.clientY; const f=focusRef.current; if(f){f.yaw-=dx*.005; f.pitch=clamp(f.pitch+dy*.005,-1.35,1.35);}else{yawRef.current-=dx*.005; pitchRef.current=clamp(pitchRef.current+dy*.005,0,1.52); distRef.current=clamp(distRef.current*(1+dy*.002),50,30000);}}; const onUp=()=>{drag=false}; const wheel=(e:WheelEvent)=>{const f=focusRef.current; if(f){f.dist=clamp(f.dist*(e.deltaY>0?1.1:0.9),f.minDist,f.maxDist);}else{distRef.current=clamp(distRef.current*(e.deltaY>0?1.1:0.9),50,30000);}};
@@ -1378,7 +1389,7 @@ export default function SolarHarmonics3D(){
         // a faint baseline for every closer view.
         const zoomFade=clamp((camDist-1200)/2300,0,1);
         const starI=(0.35+0.65*zoomFade)*(1-0.85*glare)*(1-occl);
-        for(const m2 of skyMats) m2.opacity=((m2 as any).userData.baseOp||1)*starI;
+        for(const m2 of skyMats) m2.uniforms.uOpacity.value=((m2 as any).userData.baseOp||1)*starI;
       }
       // asteroid tumble clock (wall time, so it stays smooth at any sim speed)
       // + camera position for the sun-phase lighting on the rocks
