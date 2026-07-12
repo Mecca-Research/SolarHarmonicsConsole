@@ -947,12 +947,19 @@ export default function SolarHarmonics3D(){
     // still a single draw call per belt, no extra geometry.
     const vshader = `
       attribute vec3 color; attribute float aCell; attribute float aAng; attribute float aSpin;
-      varying vec3 vColor; varying float vCell; varying float vAng;
+      varying vec3 vColor; varying float vCell; varying float vAng; varying float vBright;
       uniform float uMinPx; uniform float uMaxPx; uniform float uScale; uniform float uTime;
+      uniform vec3 uCamPos; uniform float uPhase;
       void main(){
         vColor = color;
         vCell = aCell;
         vAng = aAng + aSpin * uTime;
+        // Sun-phase lighting: rocks glow when their sunlit side faces the
+        // camera (sun at the origin) and dim when backlit. uPhase blends it
+        // out for Kuiper objects, which get near-constant display luminance.
+        float d = dot(normalize(-position), normalize(uCamPos - position));
+        float ph = 0.25 + 0.75 * clamp(0.5 + 0.5 * d, 0.0, 1.0);
+        vBright = mix(1.0, ph, uPhase);
         vec4 mv = modelViewMatrix * vec4(position,1.0);
         gl_Position = projectionMatrix * mv;
         float px = uScale / max(-mv.z, 1.0);
@@ -960,7 +967,7 @@ export default function SolarHarmonics3D(){
       }
     `;
     const fshader = `
-      varying vec3 vColor; varying float vCell; varying float vAng;
+      varying vec3 vColor; varying float vCell; varying float vAng; varying float vBright;
       uniform sampler2D uMap; uniform float uOpacity;
       void main(){
         vec2 pc = gl_PointCoord - 0.5;
@@ -969,7 +976,7 @@ export default function SolarHarmonics3D(){
         if(abs(pc.x) > 0.499 || abs(pc.y) > 0.499) discard;
         vec2 uv = (vec2(mod(vCell, 4.0), floor(vCell / 4.0)) + pc + 0.5) / vec2(4.0, 2.0);
         vec4 tex = texture2D(uMap, uv);
-        vec4 c = vec4(vColor,1.0) * tex; c.a *= uOpacity;
+        vec4 c = vec4(vColor * vBright, 1.0) * tex; c.a *= uOpacity;
         if(c.a < 0.02) discard; gl_FragColor = c;
       }
     `;
@@ -1017,21 +1024,21 @@ export default function SolarHarmonics3D(){
       geo.setAttribute('aAng',new THREE.BufferAttribute(ang,1));
       geo.setAttribute('aSpin',new THREE.BufferAttribute(spin,1));
     };
-    const mkMat = (opacity:number, minPx=1.5, maxPx=9.0)=> new THREE.ShaderMaterial({
+    const mkMat = (opacity:number, minPx=2.0, maxPx=10.0, phase=1.0)=> new THREE.ShaderMaterial({
       vertexShader: vshader, fragmentShader: fshader, transparent:true,
       depthWrite:false, depthTest:true, blending:THREE.NormalBlending,
-      uniforms:{ uMap:{value:asteroidAtlas}, uTime:{value:0}, uOpacity:{value:opacity}, uMinPx:{value:minPx}, uMaxPx:{value:maxPx}, uScale:{value:460*(renderer.getPixelRatio?.()||1)} }
+      uniforms:{ uMap:{value:asteroidAtlas}, uTime:{value:0}, uCamPos:{value:new THREE.Vector3()}, uPhase:{value:phase}, uOpacity:{value:opacity}, uMinPx:{value:minPx}, uMaxPx:{value:maxPx}, uScale:{value:460*(renderer.getPixelRatio?.()||1)} }
     });
     type Belt={geo:THREE.BufferGeometry,mesh:THREE.Points,a:Float32Array,e:Float32Array,inc:Float32Array,M:Float32Array,n:Float32Array,cursor:number};
-    const mkOrbitingBelt=(count:number,rangeAU:[number,number],eccMax:number,incSigmaDeg:number,size:number,colorize:(i:number)=>[number,number,number],opacity=0.62):Belt=>{const geo=new THREE.BufferGeometry(); const pos=new Float32Array(count*3), col=new Float32Array(count*3); const a=new Float32Array(count), e=new Float32Array(count), inc=new Float32Array(count), M=new Float32Array(count), nA=new Float32Array(count); for(let i=0;i<count;i++){const ai=lerp(rangeAU[0],rangeAU[1],Math.random())*AU2U; a[i]=ai; e[i]=Math.random()*eccMax; inc[i]=rad(Math.max(0,randn()*incSigmaDeg)); const Ti=TE*Math.pow((ai/aE),1.5); nA[i]=(2*Math.PI)/Ti; M[i]=Math.random()*Math.PI*2; const f=approxTrue(M[i],e[i]); const r=ai*(1-e[i]*Math.cos(M[i])); const xp=r*Math.cos(f), yp=r*Math.sin(f); const idx=3*i; pos[idx]=xp; pos[idx+1]=yp*Math.sin(inc[i]); pos[idx+2]=yp*Math.cos(inc[i]); const [rC,gC,bC]=colorize(i); col.set([rC,gC,bC],idx);} const posAttr=new THREE.BufferAttribute(pos,3); posAttr.setUsage(THREE.DynamicDrawUsage); geo.setAttribute('position',posAttr); geo.setAttribute('color',new THREE.BufferAttribute(col,3)); addRockAttrs(geo,count); const mat=mkMat(opacity, 1.6, 9.0); const pts=new THREE.Points(geo,mat); pts.frustumCulled=false; if(!geo.boundingSphere) geo.boundingSphere=new THREE.Sphere(new THREE.Vector3(0,0,0), AU2U*80); scene.add(pts); return {geo,mesh:pts,a,e,inc,M:M,n:nA,cursor:0}};
-    let ast=mkOrbitingBelt(astCRef.current,[2.1,3.3],0.12,2.5,0.9,()=>{const c=.68+Math.random()*.22;return [c,c,c]},0.58);
-    let kui=mkOrbitingBelt(kuiCRef.current,[42,48],0.10,5.5,1.4,()=>{const c=.78+Math.random()*.18;return [c*.65,c*.85,1.0]},0.72);
+    const mkOrbitingBelt=(count:number,rangeAU:[number,number],eccMax:number,incSigmaDeg:number,size:number,colorize:(i:number)=>[number,number,number],opacity=0.62,phase=1.0):Belt=>{const geo=new THREE.BufferGeometry(); const pos=new Float32Array(count*3), col=new Float32Array(count*3); const a=new Float32Array(count), e=new Float32Array(count), inc=new Float32Array(count), M=new Float32Array(count), nA=new Float32Array(count); for(let i=0;i<count;i++){const ai=lerp(rangeAU[0],rangeAU[1],Math.random())*AU2U; a[i]=ai; e[i]=Math.random()*eccMax; inc[i]=rad(Math.max(0,randn()*incSigmaDeg)); const Ti=TE*Math.pow((ai/aE),1.5); nA[i]=(2*Math.PI)/Ti; M[i]=Math.random()*Math.PI*2; const f=approxTrue(M[i],e[i]); const r=ai*(1-e[i]*Math.cos(M[i])); const xp=r*Math.cos(f), yp=r*Math.sin(f); const idx=3*i; pos[idx]=xp; pos[idx+1]=yp*Math.sin(inc[i]); pos[idx+2]=yp*Math.cos(inc[i]); const [rC,gC,bC]=colorize(i); col.set([rC,gC,bC],idx);} const posAttr=new THREE.BufferAttribute(pos,3); posAttr.setUsage(THREE.DynamicDrawUsage); geo.setAttribute('position',posAttr); geo.setAttribute('color',new THREE.BufferAttribute(col,3)); addRockAttrs(geo,count); const mat=mkMat(opacity, 2.0, 10.0, phase); const pts=new THREE.Points(geo,mat); pts.frustumCulled=false; if(!geo.boundingSphere) geo.boundingSphere=new THREE.Sphere(new THREE.Vector3(0,0,0), AU2U*80); scene.add(pts); return {geo,mesh:pts,a,e,inc,M:M,n:nA,cursor:0}};
+    let ast=mkOrbitingBelt(astCRef.current,[2.1,3.3],0.12,2.5,0.9,()=>{const c=.85+Math.random()*.25;return [c,c,c]},0.85,1.0);
+    let kui=mkOrbitingBelt(kuiCRef.current,[42,48],0.10,5.5,1.4,()=>{const c=.9+Math.random()*.2;return [c*.75,c*.95,1.15]},0.95,0.15);
 
     type Swarm=Belt;
-    const mkCoOrbital=(count:number,aRangeAU:[number,number],centerOffset:number,coreDeg:number,color:number,incSigma=1.2):Swarm=>{const aMin=aRangeAU[0]*AU2U,aMax=aRangeAU[1]*AU2U; const geo=new THREE.BufferGeometry(); const pos=new Float32Array(count*3), col=new Float32Array(count*3); const a=new Float32Array(count), e=new Float32Array(count), inc=new Float32Array(count), M=new Float32Array(count), nA=new Float32Array(count); const cc=new THREE.Color(color); const mj=jupLon(); for(let i=0;i<count;i++){const core=Math.random()<0.7; const width=rad(coreDeg); const tail=rad(60); const g=width*0.55*randn(); const tailOff=(Math.random()*tail); const dTheta=core? g : (width*0.25*randn()+tailOff); const sign=Math.sign(centerOffset||1); const theta=wrap(mj+centerOffset+sign*dTheta); const t=clamp((core?Math.abs(g):tailOff)/tail,0,1); const ai=lerp(aMin,aMax, core?0.45+0.35*Math.random():0.25+0.70*t); const ei=Math.min(0.08,Math.abs(randn())*0.03+0.01*Math.random()); const inci=rad(Math.max(0,randn()*incSigma)); a[i]=ai; e[i]=ei; inc[i]=inci; const Ti=TE*Math.pow((ai/aE),1.5); nA[i]=(2*Math.PI)/Ti; M[i]=theta; const f=approxTrue(M[i],e[i]); const r=ai*(1-e[i]*Math.cos(M[i])); const xp=r*Math.cos(f), yp=r*Math.sin(f); const idx=3*i; pos[idx]=xp; pos[idx+1]=yp*Math.sin(inci); pos[idx+2]=yp*Math.cos(inci); col.set([cc.r,cc.g,cc.b],idx);} const posAttr=new THREE.BufferAttribute(pos,3); posAttr.setUsage(THREE.DynamicDrawUsage); geo.setAttribute('position',posAttr); geo.setAttribute('color',new THREE.BufferAttribute(col,3)); addRockAttrs(geo,count); const mat=mkMat(0.56, 1.6, 9.0); const pts=new THREE.Points(geo,mat); pts.frustumCulled=false; if(!geo.boundingSphere) geo.boundingSphere=new THREE.Sphere(new THREE.Vector3(0,0,0), AU2U*80); scene.add(pts); return {geo,mesh:pts,a,e,inc,M:M,n:nA,cursor:0}};
+    const mkCoOrbital=(count:number,aRangeAU:[number,number],centerOffset:number,coreDeg:number,color:number,incSigma=1.2):Swarm=>{const aMin=aRangeAU[0]*AU2U,aMax=aRangeAU[1]*AU2U; const geo=new THREE.BufferGeometry(); const pos=new Float32Array(count*3), col=new Float32Array(count*3); const a=new Float32Array(count), e=new Float32Array(count), inc=new Float32Array(count), M=new Float32Array(count), nA=new Float32Array(count); const cc=new THREE.Color(color); const mj=jupLon(); for(let i=0;i<count;i++){const core=Math.random()<0.7; const width=rad(coreDeg); const tail=rad(60); const g=width*0.55*randn(); const tailOff=(Math.random()*tail); const dTheta=core? g : (width*0.25*randn()+tailOff); const sign=Math.sign(centerOffset||1); const theta=wrap(mj+centerOffset+sign*dTheta); const t=clamp((core?Math.abs(g):tailOff)/tail,0,1); const ai=lerp(aMin,aMax, core?0.45+0.35*Math.random():0.25+0.70*t); const ei=Math.min(0.08,Math.abs(randn())*0.03+0.01*Math.random()); const inci=rad(Math.max(0,randn()*incSigma)); a[i]=ai; e[i]=ei; inc[i]=inci; const Ti=TE*Math.pow((ai/aE),1.5); nA[i]=(2*Math.PI)/Ti; M[i]=theta; const f=approxTrue(M[i],e[i]); const r=ai*(1-e[i]*Math.cos(M[i])); const xp=r*Math.cos(f), yp=r*Math.sin(f); const idx=3*i; pos[idx]=xp; pos[idx+1]=yp*Math.sin(inci); pos[idx+2]=yp*Math.cos(inci); col.set([cc.r,cc.g,cc.b],idx);} const posAttr=new THREE.BufferAttribute(pos,3); posAttr.setUsage(THREE.DynamicDrawUsage); geo.setAttribute('position',posAttr); geo.setAttribute('color',new THREE.BufferAttribute(col,3)); addRockAttrs(geo,count); const mat=mkMat(0.66, 2.0, 10.0, 1.0); const pts=new THREE.Points(geo,mat); pts.frustumCulled=false; if(!geo.boundingSphere) geo.boundingSphere=new THREE.Sphere(new THREE.Vector3(0,0,0), AU2U*80); scene.add(pts); return {geo,mesh:pts,a,e,inc,M:M,n:nA,cursor:0}};
     let L4:Swarm, L5:Swarm; const trojanTotal=Math.max(2000,Math.floor(astCRef.current*0.2)); L4=mkCoOrbital(Math.floor(trojanTotal/2),[4.9,5.5],+Math.PI/3,20,0x62f38e,1.0); L5=mkCoOrbital(Math.ceil(trojanTotal/2), [4.9,5.5],-Math.PI/3,20,0xff6b6b,1.0);
 
-    const mkHilda=(count:number,phase:number)=>{const aH=5.2028*Math.pow(2/3,2/3); const geo=new THREE.BufferGeometry(); const pos=new Float32Array(count*3), col=new Float32Array(count*3); const a=new Float32Array(count), e=new Float32Array(count), inc=new Float32Array(count), M=new Float32Array(count), nA=new Float32Array(count); const mj=jupLon(); const cc=new THREE.Color(0xc770ff); for(let i=0;i<count;i++){const d=rad(18)*randn(); const theta=wrap(mj+phase+d); const ai=(aH+lerp(-0.35,0.35,Math.random()))*AU2U; const ei=0.08+Math.abs(randn())*0.05; const inci=rad(Math.max(0,randn()*1.5)); a[i]=ai; e[i]=clamp(ei,0,0.18); inc[i]=inci; const Ti=TE*Math.pow((ai/aE),1.5); nA[i]=(2*Math.PI)/Ti; M[i]=theta; const f=approxTrue(M[i],e[i]); const r=ai*(1-e[i]*Math.cos(M[i])); const xp=r*Math.cos(f), yp=r*Math.sin(f); const idx=3*i; pos[idx]=xp; pos[idx+1]=yp*Math.sin(inci); pos[idx+2]=yp*Math.cos(inci); col.set([cc.r,cc.g,cc.b],idx);} const posAttr=new THREE.BufferAttribute(pos,3); posAttr.setUsage(THREE.DynamicDrawUsage); geo.setAttribute('position',posAttr); geo.setAttribute('color',new THREE.BufferAttribute(col,3)); addRockAttrs(geo,count); const mat=mkMat(0.64, 1.6, 9.0); const pts=new THREE.Points(geo,mat); pts.frustumCulled=false; if(!geo.boundingSphere) geo.boundingSphere=new THREE.Sphere(new THREE.Vector3(0,0,0), AU2U*80); scene.add(pts); return {geo,mesh:pts,a,e,inc,M:M,n:nA,cursor:0}};
+    const mkHilda=(count:number,phase:number)=>{const aH=5.2028*Math.pow(2/3,2/3); const geo=new THREE.BufferGeometry(); const pos=new Float32Array(count*3), col=new Float32Array(count*3); const a=new Float32Array(count), e=new Float32Array(count), inc=new Float32Array(count), M=new Float32Array(count), nA=new Float32Array(count); const mj=jupLon(); const cc=new THREE.Color(0xc770ff); for(let i=0;i<count;i++){const d=rad(18)*randn(); const theta=wrap(mj+phase+d); const ai=(aH+lerp(-0.35,0.35,Math.random()))*AU2U; const ei=0.08+Math.abs(randn())*0.05; const inci=rad(Math.max(0,randn()*1.5)); a[i]=ai; e[i]=clamp(ei,0,0.18); inc[i]=inci; const Ti=TE*Math.pow((ai/aE),1.5); nA[i]=(2*Math.PI)/Ti; M[i]=theta; const f=approxTrue(M[i],e[i]); const r=ai*(1-e[i]*Math.cos(M[i])); const xp=r*Math.cos(f), yp=r*Math.sin(f); const idx=3*i; pos[idx]=xp; pos[idx+1]=yp*Math.sin(inci); pos[idx+2]=yp*Math.cos(inci); col.set([cc.r,cc.g,cc.b],idx);} const posAttr=new THREE.BufferAttribute(pos,3); posAttr.setUsage(THREE.DynamicDrawUsage); geo.setAttribute('position',posAttr); geo.setAttribute('color',new THREE.BufferAttribute(col,3)); addRockAttrs(geo,count); const mat=mkMat(0.74, 2.0, 10.0, 1.0); const pts=new THREE.Points(geo,mat); pts.frustumCulled=false; if(!geo.boundingSphere) geo.boundingSphere=new THREE.Sphere(new THREE.Vector3(0,0,0), AU2U*80); scene.add(pts); return {geo,mesh:pts,a,e,inc,M:M,n:nA,cursor:0}};
     let H1:Swarm, H2:Swarm, H3:Swarm; const hildaTotal=Math.max(1000,Math.floor(astCRef.current*0.08)); H1=mkHilda(Math.floor(hildaTotal/3), +Math.PI/3); H2=mkHilda(Math.floor(hildaTotal/3), Math.PI); H3=mkHilda(hildaTotal-2*Math.floor(hildaTotal/3), -Math.PI/3);
 
     // ---- Sky: layered starfield + faint galactic band ----------------------
@@ -1109,38 +1116,40 @@ export default function SolarHarmonics3D(){
     // Faint Milky Way ribbon: soft nebulosity + star dust + dark dust lanes,
     // painted on the inside of a slightly larger sky sphere.
     const mkNebulaTex=()=>{
-      const w=1024,h=512,c=document.createElement('canvas');c.width=w;c.height=h;
+      // Painted at quarter res and upscaled with smoothing so the nebulosity
+      // is soft (no pixel blocks), then fine star dust at full resolution.
+      // Deliberately FAINT: the band must never pollute the system with light.
+      const w=2048,h=1024,c=document.createElement('canvas');c.width=w;c.height=h;
       const x=c.getContext('2d')!;
+      const bw=512,bh=256,bc=document.createElement('canvas');bc.width=bw;bc.height=bh;const bx=bc.getContext('2d')!;
       const rnd=mkRng(707);
-      const g0=(yc:number)=>Math.exp(-Math.pow((yc/h-0.5)/0.10,2));
-      for(let i=0;i<420;i++){
-        const px2=rnd()*w, py2=h*(0.5+(rnd()+rnd()+rnd()-1.5)/1.5*0.14);
-        const rr=14+rnd()*70, a=(0.05+rnd()*0.09)*g0(py2);
+      const g0=(v:number)=>Math.exp(-Math.pow((v-0.5)/0.10,2));
+      for(let i=0;i<520;i++){
+        const px2=rnd()*bw, py2=bh*(0.5+(rnd()+rnd()+rnd()-1.5)/1.5*0.14);
+        const rr=10+rnd()*44, a=(0.020+rnd()*0.035)*g0(py2/bh);
         const warm=rnd()<0.18;
-        const rg=x.createRadialGradient(px2,py2,0,px2,py2,rr);
+        const rg=bx.createRadialGradient(px2,py2,0,px2,py2,rr);
         rg.addColorStop(0,warm?`rgba(214,198,172,${a.toFixed(3)})`:`rgba(158,178,216,${a.toFixed(3)})`);
         rg.addColorStop(1,'rgba(158,178,216,0)');
-        x.fillStyle=rg;x.beginPath();x.ellipse(px2,py2,rr*1.8,rr*0.8,0,0,Math.PI*2);x.fill();
+        bx.fillStyle=rg;bx.beginPath();bx.ellipse(px2,py2,rr*1.8,rr*0.8,0,0,Math.PI*2);bx.fill();
       }
-      // dark dust lanes threading the band
       for(let i=0;i<70;i++){
-        const px2=rnd()*w, py2=h*(0.5+(rnd()-0.5)*0.10), rr=10+rnd()*46;
+        const px2=rnd()*bw, py2=bh*(0.5+(rnd()-0.5)*0.10), rr=8+rnd()*24;
         const a=0.05+rnd()*0.06;
-        const rg=x.createRadialGradient(px2,py2,0,px2,py2,rr);
+        const rg=bx.createRadialGradient(px2,py2,0,px2,py2,rr);
         rg.addColorStop(0,`rgba(4,5,9,${a.toFixed(3)})`); rg.addColorStop(1,'rgba(4,5,9,0)');
-        x.fillStyle=rg;x.beginPath();x.ellipse(px2,py2,rr*2.4,rr*0.6,0,0,Math.PI*2);x.fill();
+        bx.fillStyle=rg;bx.beginPath();bx.ellipse(px2,py2,rr*2.4,rr*0.6,0,0,Math.PI*2);bx.fill();
       }
-      // fine unresolved star dust
-      for(let i=0;i<5200;i++){
+      x.imageSmoothingEnabled=true; x.drawImage(bc,0,0,w,h);
+      for(let i=0;i<7000;i++){
         const px2=rnd()*w, py2=h*(0.5+(rnd()+rnd()+rnd()-1.5)/1.5*0.13);
-        x.fillStyle=`rgba(226,232,244,${((0.08+rnd()*0.18)*g0(py2)).toFixed(3)})`;
+        x.fillStyle=`rgba(226,232,244,${((0.05+rnd()*0.10)*g0(py2/h)).toFixed(3)})`;
         x.fillRect(px2,py2,1,1);
       }
       const t=track(new THREE.CanvasTexture(c)); (t as any).colorSpace=THREE.SRGBColorSpace; t.needsUpdate=true; return t;
     };
-    const nebulaMat=new THREE.MeshBasicMaterial({map:mkNebulaTex(),transparent:true,opacity:0.8,side:THREE.BackSide,depthWrite:false});
-    nebulaMat.toneMapped=false;
-    (nebulaMat as any).userData={baseOp:0.8};
+    const nebulaMat=new THREE.MeshBasicMaterial({map:mkNebulaTex(),transparent:true,opacity:0.22,side:THREE.BackSide,depthWrite:false});
+    (nebulaMat as any).userData={baseOp:0.22};
     const nebula=new THREE.Mesh(new THREE.SphereGeometry(SKY_R*1.05,48,24),nebulaMat);
     nebula.setRotationFromEuler(bandEuler); nebula.renderOrder=-2; nebula.frustumCulled=false;
     sky.add(nebula); skyMats.push(nebulaMat);
@@ -1355,12 +1364,16 @@ export default function SolarHarmonics3D(){
       }
       cam.lookAt(camLookSm);
 
-      // ---- Sky follows the camera; star prominence reacts to the view ----
-      sky.position.copy(cam.position);
+      // ---- Sky parallax + view-reactive star prominence ----
+      // The sky follows the camera at 55% of its motion: distant-sky parallax,
+      // so stars drift gently as you pan/zoom instead of freezing in place
+      // (the offset stays well inside the sky sphere at max zoom-out).
+      sky.position.copy(cam.position).multiplyScalar(0.55);
       {
         const camDist=cam.position.length();
-        // more prominent as the solar system shrinks on screen
-        const zoomBoost=clamp((camDist-800)/9000,0,1);
+        // more prominent as the solar system shrinks on screen — continuous
+        // over the WHOLE zoom range (log curve), so the feel keeps changing
+        const zoomBoost=clamp(Math.log10(Math.max(camDist,100)/600)/1.7,0,1);
         // fade against the Sun's light: facing it and/or close enough that
         // its glare dominates the frame
         cam.getWorldDirection(skyFwd);
@@ -1375,9 +1388,14 @@ export default function SolarHarmonics3D(){
         for(const m2 of skyMats) m2.opacity=((m2 as any).userData.baseOp||1)*starI;
       }
       // asteroid tumble clock (wall time, so it stays smooth at any sim speed)
+      // + camera position for the sun-phase lighting on the rocks
       {
         const wallT=now/1000;
-        for(const B of [ast,kui,L4,L5,H1,H2,H3]) ((B.mesh.material as any).uniforms.uTime).value=wallT;
+        for(const B of [ast,kui,L4,L5,H1,H2,H3]){
+          const u=(B.mesh.material as any).uniforms;
+          u.uTime.value=wallT;
+          u.uCamPos.value.copy(cam.position);
+        }
       }
       sunLight.position.set(0,0,0);
       sunGlow.position.set(0,0,0);
@@ -1401,7 +1419,7 @@ export default function SolarHarmonics3D(){
     };
     rafRef.current=requestAnimationFrame(loop);
 
-    cmdsRef.current.rebuildBelts=()=>{const re=(B:Belt)=>{scene.remove(B.mesh); B.geo.dispose(); (B.mesh.material as THREE.Material).dispose()}; re(ast); re(kui); re(L4); re(L5); re(H1); re(H2); re(H3); ast=mkOrbitingBelt(astCRef.current,[2.1,3.3],0.12,2.5,0.9,()=>{const c=.68+Math.random()*.22;return [c,c,c]},0.58); kui=mkOrbitingBelt(kuiCRef.current,[42,48],0.10,5.5,1.4,()=>{const c=.78+Math.random()*.18;return [c*.65,c*.85,1.0]},0.72); const trojanTotal=Math.max(2000,Math.floor(astCRef.current*0.2)); L4=mkCoOrbital(Math.floor(trojanTotal/2),[4.9,5.5],+Math.PI/3,20,0x62f38e,1.0); L5=mkCoOrbital(Math.ceil(trojanTotal/2),[4.9,5.5],-Math.PI/3,20,0xff6b6b,1.0); const hildaTotal=Math.max(1000,Math.floor(astCRef.current*0.08)); H1=mkHilda(Math.floor(hildaTotal/3),+Math.PI/3); H2=mkHilda(Math.floor(hildaTotal/3),Math.PI); H3=mkHilda(hildaTotal-2*Math.floor(hildaTotal/3),-Math.PI/3)};
+    cmdsRef.current.rebuildBelts=()=>{const re=(B:Belt)=>{scene.remove(B.mesh); B.geo.dispose(); (B.mesh.material as THREE.Material).dispose()}; re(ast); re(kui); re(L4); re(L5); re(H1); re(H2); re(H3); ast=mkOrbitingBelt(astCRef.current,[2.1,3.3],0.12,2.5,0.9,()=>{const c=.85+Math.random()*.25;return [c,c,c]},0.85,1.0); kui=mkOrbitingBelt(kuiCRef.current,[42,48],0.10,5.5,1.4,()=>{const c=.9+Math.random()*.2;return [c*.75,c*.95,1.15]},0.95,0.15); const trojanTotal=Math.max(2000,Math.floor(astCRef.current*0.2)); L4=mkCoOrbital(Math.floor(trojanTotal/2),[4.9,5.5],+Math.PI/3,20,0x62f38e,1.0); L5=mkCoOrbital(Math.ceil(trojanTotal/2),[4.9,5.5],-Math.PI/3,20,0xff6b6b,1.0); const hildaTotal=Math.max(1000,Math.floor(astCRef.current*0.08)); H1=mkHilda(Math.floor(hildaTotal/3),+Math.PI/3); H2=mkHilda(Math.floor(hildaTotal/3),Math.PI); H3=mkHilda(hildaTotal-2*Math.floor(hildaTotal/3),-Math.PI/3)};
 
     return ()=>{cancelAnimationFrame(rafRef.current); ro.disconnect(); renderer.domElement.removeEventListener('mousedown',md as any); window.removeEventListener('mousemove',mm as any); window.removeEventListener('mouseup',onUp as any); renderer.domElement.removeEventListener('wheel',wheel as any); renderer.domElement.removeEventListener('dblclick',onDblClick as any); window.removeEventListener('keydown',onKeyDown as any); if((window as any).__solar===cmdsRef.current) delete (window as any).__solar; focusRef.current=null; root.removeChild(renderer.domElement); renderer.dispose(); scene.traverse((o:any)=>{o.geometry?.dispose?.(); const m=o.material; if(m){Array.isArray(m)?m.forEach((mm:any)=>mm.dispose?.()):m.dispose?.();}}); bag.forEach(f=>{try{f()}catch{}}) };
 
