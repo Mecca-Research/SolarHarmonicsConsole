@@ -107,6 +107,8 @@ Three.js solar system simulation (SolarHarmonicsConsole). React + Vite frontend-
 - Textures: Mercury, Venus, Saturn (body + detailed rings incl. Cassini/Encke/Keeler gaps and F ring), Uranus, and Neptune are seeded procedural equirectangular maps modeled on NASA reference photos (MESSENGER enhanced color, Magellan radar, Cassini portrait, Keck, Voyager 2); Mars/Jupiter/Pluto load CDN maps over procedural fallbacks; Earth uses CDN day/night/water/topology maps. Venus deliberately has no atmosphere glow shell (it read as a ring)
 - Lighting: PointLight sun at origin (warm white, intensity 2.0, quadratic decay) + near-zero AmbientLight (0.02) for true dark-side rendering on inner planets; outer planets fully lit via MeshBasicMaterial; ACES filmic tone mapping at exposure 1.4
 - Sun: Custom GLSL fbm noise shader with limb darkening; animated solar flare particle system
+- Sky: camera-anchored layered starfield (~20k stars in 4 layers with realistic color temperatures + a Milky Way band with dust lanes, drawn toneMapped:false so ACES doesn't crush them); brightness reacts per frame to zoom-out distance, sun glare (view direction × apparent sun size), and focused-planet screen coverage
+- Belts: particles sample a procedural 4x2 atlas of shaded asteroid sprites with per-particle rotation + tumble animated in the shader (aCell/aAng/aSpin attributes + uTime) — still one draw call per belt
 - Graceful WebGL fallback: try-catch around renderer creation with user-facing message
 
 ### `scripts` (`@workspace/scripts`)
