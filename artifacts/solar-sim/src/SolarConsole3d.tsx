@@ -14,15 +14,15 @@ const TEX_CDN = 'https://www.solarsystemscope.com/textures/download';
 const GLOBE_CDN = 'https://cdn.jsdelivr.net/npm/three-globe@2.34.0/example/img';
 const PLANET_CDN = 'https://cdn.jsdelivr.net/gh/jeromeetienne/threex.planets@master/images';
 
-// Mercury and Saturn are hand-built procedural maps modeled on NASA reference
-// photos (MESSENGER enhanced color / Cassini) — the tiny CDN maps looked
-// worse, so they must NOT override those procedurals. Venus uses the classic
-// creamy cloud-deck CDN map (with a matching cloudy procedural fallback).
+// Mercury, Saturn, Uranus, Neptune and Pluto are hand-built procedural maps
+// modeled on NASA reference photos (MESSENGER enhanced color / Cassini /
+// Keck / Voyager 2 / New Horizons) — the tiny CDN maps looked worse, so they
+// must NOT override those procedurals. Venus uses the classic creamy
+// cloud-deck CDN map (with a matching cloudy procedural fallback).
 const CDN_TEX_URLS: Record<string, string[]> = {
   Venus:   [`${PLANET_CDN}/venusmap.jpg`],
   Mars:    [`${PLANET_CDN}/marsmap1k.jpg`],
   Jupiter: [`${PLANET_CDN}/jupitermap.jpg`],
-  Pluto:   [`${PLANET_CDN}/plutomap1k.jpg`],
 };
 
 const OUTER_PLANETS = new Set(['Jupiter', 'Saturn', 'Uranus', 'Neptune', 'Pluto']);
@@ -212,6 +212,42 @@ const LIT_FRAG = /* glsl */`
   }
 `;
 
+// View-based limb darkening for bodies rendered without a day/night
+// terminator (Pluto): the disk shades toward its edge from the viewer's
+// perspective, so it reads as a lit sphere instead of a flat cut-out —
+// exactly how the New Horizons full-disk portrait looks.
+const LIMB_VERT = /* glsl */`
+  varying vec2 vUv;
+  varying vec3 vNormal;
+  varying vec3 vViewDir;
+  void main(){
+    vUv = uv;
+    vNormal = normalize((modelMatrix * vec4(normal, 0.0)).xyz);
+    vec3 wp = (modelMatrix * vec4(position, 1.0)).xyz;
+    vViewDir = cameraPosition - wp;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+const LIMB_FRAG = /* glsl */`
+  uniform sampler2D uMap;
+  uniform float uDim;
+  varying vec2 vUv;
+  varying vec3 vNormal;
+  varying vec3 vViewDir;
+  void main(){
+    float mu = clamp(dot(normalize(vNormal), normalize(vViewDir)), 0.0, 1.0);
+    float limb = mix(0.45, 1.0, pow(mu, 0.55));
+    vec3 col = texture2D(uMap, vUv).rgb * limb * uDim;
+    gl_FragColor = vec4(col, 1.0);
+    // Match MeshBasicMaterial's output pipeline (ACES tone map + sRGB encode)
+    // so the authored texture colors survive; without these the raw linear
+    // values render far too dark.
+    #include <tonemapping_fragment>
+    #include <colorspace_fragment>
+  }
+`;
+
 const EARTH_VERT = /* glsl */`
   varying vec2 vUv;
   varying vec3 vNormal;
@@ -359,6 +395,7 @@ export default function SolarHarmonics3D(){
       case 'Saturn':  return saturnBodyProc();
       case 'Uranus':  return uranusProc();
       case 'Neptune': return neptuneProc();
+      case 'Pluto':   return plutoProc();
       default:        return makeBlot('#cdcac7','#a09d9b');
     }};
 
@@ -805,6 +842,144 @@ export default function SolarHarmonics3D(){
       const t=track(new THREE.CanvasTexture(c));(t as any).colorSpace=THREE.SRGBColorSpace;t.needsUpdate=true;return t;
     };
 
+    const plutoProc = () => {
+      // New Horizons enhanced-color Pluto: the bright nitrogen-ice heart
+      // (Sputnik Planitia — west lobe brighter, with faint convection-cell
+      // texture), the huge dark-red Cthulhu Macula riding the equator west of
+      // it, the smaller "brass knuckles" maculae east of it, pale-gold
+      // northern terrain (Lowell Regio), rim-shaded craters and long tectonic
+      // fracture troughs across the tan mid-latitudes.
+      const w=2048,h=1024,c=document.createElement('canvas');c.width=w;c.height=h;const x=c.getContext('2d')!;
+      const rnd=mkRng(134340);
+      const nTone=mkNoise(31,9), nMac=mkNoise(47,7), nEdge=mkNoise(59,8), nPole=mkNoise(73,6);
+      const sstep=(e0:number,e1:number,val:number)=>{const t2=clamp((val-e0)/(e1-e0),0,1);return t2*t2*(3-2*t2);};
+      const duWrap=(a:number,b:number)=>{const d=Math.abs(a-b);return Math.min(d,1-d);};
+      // Heart mask — shared by the base raster and by detail placement so
+      // craters/fractures/grit know to stay off the geologically fresh ice.
+      // The west lobe is a vertically elongated blob that narrows southward
+      // (the "ice-cream cone"); the east lobe is a rounder, fainter shelf.
+      const lobeL=(u:number,v:number)=>{const wv=0.088*Math.max(0.22,1-Math.max(0,v-0.36)*2.1);
+        return Math.exp(-(((u-0.455)/wv)**2+((v-0.455)/0.145)**2)*1.55);};
+      const lobeR=(u:number,v:number)=>0.82*Math.exp(-(((u-0.575)/0.080)**2+((v-0.425)/0.095)**2)*1.75);
+      const heartM=(u:number,v:number)=>sstep(0.30+0.10*nEdge(u*2,v*2),0.58,lobeL(u,v)+lobeR(u,v));
+      // Dark maculae mask: Cthulhu (an elongated whale spanning ~130° of
+      // longitude, wrap-safe) plus the chain of small maculae east of the heart.
+      const macM=(u:number,v:number)=>{
+        let m=Math.exp(-((duWrap(u,0.18)/(0.17+0.05*nMac(u,v)))**2+((v-0.555)/0.075)**2)*1.35);
+        for(const [cu,s] of [[0.685,0.75],[0.760,0.9],[0.835,0.7],[0.905,0.8]] as [number,number][])
+          m=Math.max(m,s*Math.exp(-((duWrap(u,cu)/0.030)**2+((v-0.545)/0.045)**2)*1.6));
+        return sstep(0.28,0.60,m+nMac(u*3,v*3)*0.08)*(1-heartM(u,v));
+      };
+      // Per-pixel base at quarter res, upscaled smoothly.
+      const bw=512,bh=256,bc=document.createElement('canvas');bc.width=bw;bc.height=bh;const bx=bc.getContext('2d')!;
+      const img=bx.createImageData(bw,bh);
+      const HEART_W=[248,242,232],HEART_E=[232,218,196],GOLD=[219,183,118],TAN=[176,127,84],DTAN=[112,70,42],RED=[124,48,26],DRED=[70,26,15];
+      for(let j=0;j<bh;j++)for(let i=0;i<bw;i++){
+        const u=i/bw, v=j/bh;
+        const tone=nTone(u*2.5,v*2.5), fine=nTone(u*7,v*7);
+        // mottled tan terrain
+        const k=clamp(0.5+tone*0.70+fine*0.30,0,1);
+        let r=lerp(DTAN[0],TAN[0],k),g=lerp(DTAN[1],TAN[1],k),b=lerp(DTAN[2],TAN[2],k);
+        // pale-gold north (Lowell Regio)
+        const north=sstep(0.30,0.06,v)*(0.75+0.25*nPole(u*2,v*2));
+        r=lerp(r,GOLD[0],north);g=lerp(g,GOLD[1],north);b=lerp(b,GOLD[2],north);
+        // patchy rust-brown tholin staining across the southern mid-latitudes
+        const rust=sstep(0.15,0.55,nMac(u*4,v*4+2))*sstep(0.40,0.55,v)*(1-sstep(0.80,0.95,v))*0.5;
+        r=lerp(r,150,rust);g=lerp(g,84,rust);b=lerp(b,48,rust);
+        // dark red maculae belt
+        const mm=macM(u,v);
+        if(mm>0.003){const kd=clamp(0.45+nMac(u*5,v*5)*0.5,0,1);
+          r=lerp(r,lerp(DRED[0],RED[0],kd),mm);g=lerp(g,lerp(DRED[1],RED[1],kd),mm);b=lerp(b,lerp(DRED[2],RED[2],kd),mm);}
+        // bright heart: west lobe cooler white, east lobe warm cream, with a
+        // very shallow cellular shimmer so the ice isn't dead-flat
+        const hm=heartM(u,v);
+        if(hm>0.003){const side=sstep(0.46,0.56,u);
+          const cell=1+nTone(u*16,v*16)*0.02;
+          r=lerp(r,lerp(HEART_W[0],HEART_E[0],side)*cell,hm);
+          g=lerp(g,lerp(HEART_W[1],HEART_E[1],side)*cell,hm);
+          b=lerp(b,lerp(HEART_W[2],HEART_E[2],side)*cell,hm);}
+        // the hemisphere New Horizons never resolved: slightly darker, greyer
+        const south=sstep(0.78,0.98,v)*0.45; const grey=(r+g+b)/3*0.9;
+        r=lerp(r,grey,south);g=lerp(g,grey,south);b=lerp(b,grey,south);
+        const o=4*(j*bw+i);img.data[o]=clamp(r,0,255);img.data[o+1]=clamp(g,0,255);img.data[o+2]=clamp(b,0,255);img.data[o+3]=255;
+      }
+      bx.putImageData(img,0,0);
+      x.imageSmoothingEnabled=true;x.drawImage(bc,0,0,w,h);
+      // Convection-cell boundaries inside the heart: faint darker soft rings
+      // (Sputnik's nitrogen ice is divided into polygonal cells).
+      for(let i=0;i<600;i++){
+        const u=rnd(), v=0.26+rnd()*0.42;
+        if(heartM(u,v)<0.55)continue;
+        const rr=9+rnd()*16;
+        x.globalAlpha=0.05+rnd()*0.05;x.strokeStyle='#c9bda8';x.lineWidth=1.5+rnd()*1.5;
+        x.beginPath();x.ellipse(u*w,v*h,rr*(0.8+rnd()*0.5),rr*(0.7+rnd()*0.4),rnd()*Math.PI,0,Math.PI*2);x.stroke();
+      }
+      x.globalAlpha=1;
+      // Rim-shaded impact craters (subtler than Mercury's); the fresh ice of
+      // the heart stays crater-free. Craters inside the maculae go darker
+      // with warmer rims, matching the reference photo.
+      let placed=0,guard=0;
+      while(placed<420&&guard++<4000){
+        const u=rnd(), v=0.04+rnd()*0.92;
+        if(heartM(u,v)>0.30)continue;
+        placed++;
+        const px2=u*w, py2=v*h;
+        const lat=(v-0.5)*Math.PI; const st=Math.min(3.2,1/Math.max(0.28,Math.cos(lat)));
+        const r2=rnd()<0.82?1.5+rnd()*5:6+rnd()*13;
+        const inMac=macM(u,v)>0.5;
+        wrapX(x,w,()=>{
+          x.globalAlpha=0.12+rnd()*0.12; x.fillStyle=inMac?'#2a100a':'#4a3220';
+          x.beginPath();x.ellipse(px2,py2,r2*st,r2,0,0,Math.PI*2);x.fill();
+          x.globalAlpha=0.07+rnd()*0.07; x.fillStyle=inMac?'#8a5a40':'#a98e6c';
+          x.beginPath();x.ellipse(px2,py2,r2*st*0.6,r2*0.6,0,0,Math.PI*2);x.fill();
+          x.globalAlpha=0.16+rnd()*0.14; x.strokeStyle=inMac?'#c69a74':'#e8dcc2'; x.lineWidth=Math.max(0.8,r2*0.20);
+          x.beginPath();x.ellipse(px2,py2,r2*st,r2,0,Math.PI*0.75,Math.PI*1.65);x.stroke();
+        });
+      }
+      x.globalAlpha=1;
+      // Long tectonic fracture troughs (Virgil Fossae style) wandering across
+      // the tan terrain — they stop at the heart's shoreline. Coordinates stay
+      // continuous (no mod) so a trough crossing the seam is completed by wrapX.
+      let fr=0,fguard=0;
+      while(fr<14&&fguard++<200){
+        let u=rnd(), v=0.15+rnd()*0.60;
+        if(heartM(u,v)>0.20)continue;
+        fr++;
+        let ang=rnd()*Math.PI*2;
+        const segs=30+Math.floor(rnd()*50), lw=1.2+rnd()*1.8, al=0.16+rnd()*0.12;
+        for(let s2=0;s2<segs;s2++){
+          ang+=(rnd()-0.5)*0.35;
+          const u2=u+Math.cos(ang)*0.004, v2=clamp(v+Math.sin(ang)*0.0022,0.03,0.97);
+          if(heartM((u2%1+1)%1,v2)>0.20)break;
+          const a2=u*w, b2=v*h, a3=u2*w, b3=v2*h;
+          wrapX(x,w,()=>{
+            x.globalAlpha=al;x.strokeStyle='#3a2012';x.lineWidth=lw;x.lineCap='round';
+            x.beginPath();x.moveTo(a2,b2);x.lineTo(a3,b3);x.stroke();
+          });
+          u=u2;v=v2;
+        }
+      }
+      x.globalAlpha=1;
+      // Scattered bright methane-frost patches over the northern terrain.
+      for(let i=0;i<46;i++){
+        const px2=rnd()*w, py2=(0.10+rnd()*0.28)*h, rr=4+rnd()*14;
+        wrapX(x,w,()=>{const rg=x.createRadialGradient(px2,py2,0,px2,py2,rr);
+          rg.addColorStop(0,'rgba(238,226,198,0.22)');rg.addColorStop(1,'rgba(238,226,198,0)');
+          x.fillStyle=rg;x.beginPath();x.ellipse(px2,py2,rr*1.3,rr,0,0,Math.PI*2);x.fill();});
+      }
+      // Fine grit so the surface reads granular up close — pale specks on the
+      // ice, warm/dark specks on the rocky terrain.
+      for(let i=0;i<15000;i++){
+        const px2=rnd()*w, py2=rnd()*h, s2=rnd()<0.8?1:2;
+        const inH=heartM(px2/w,py2/h)>0.4;
+        x.fillStyle=inH?(rnd()<0.5?'rgba(255,252,244,0.05)':'rgba(196,186,168,0.05)')
+                       :(rnd()<0.45?'rgba(244,230,204,0.05)':'rgba(58,32,20,0.06)');
+        x.fillRect(px2,py2,s2,s2);
+      }
+      x.globalAlpha=1;
+      const t=track(new THREE.CanvasTexture(c));(t as any).colorSpace=THREE.SRGBColorSpace;t.needsUpdate=true;return t;
+    };
+
     // Sun-direction uniforms for the terminator-lit inner planets.
     const litUniforms: Partial<Record<P, {dayMap:{value:THREE.Texture}, sunDir:{value:THREE.Vector3}}>> = {};
 
@@ -818,13 +993,19 @@ export default function SolarHarmonics3D(){
           fragmentShader: EARTH_FRAG,
           uniforms: earthShaderUniforms,
         });
+      } else if (p === 'Pluto') {
+        // New Horizons Pluto: high-res procedural map + view-based limb
+        // darkening so the tiny disk reads as a shaded sphere at any zoom.
+        // uDim plays the role of the old MeshBasicMaterial 0.90 dim factor.
+        const uniforms = { uMap: { value: plutoProc() }, uDim: { value: 0.95 } };
+        planetMat = new THREE.ShaderMaterial({ vertexShader: LIMB_VERT, fragmentShader: LIMB_FRAG, uniforms });
       } else if (isOuter) {
         const fb = p === 'Saturn' ? saturnBodyProc()
           : p === 'Uranus' ? uranusProc()
           : p === 'Neptune' ? neptuneProc()
           : fallbackTex(p);
         const basicMat = new THREE.MeshBasicMaterial({ map: fb });
-        basicMat.color.setScalar(p === 'Pluto' ? 0.90 : 0.82); // outer planets dimmer (far from Sun); Pluto eased to stay visible
+        basicMat.color.setScalar(0.82); // outer planets dimmer (far from Sun)
         planetMat = basicMat;
 
         const cdnUrls = CDN_TEX_URLS[p];
