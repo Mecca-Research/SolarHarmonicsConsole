@@ -1370,10 +1370,14 @@ export default function SolarHarmonics3D(){
         // ease off a touch when a focused planet fills the frame
         const fc=focusRef.current;
         const occl=fc?clamp(bodyRadius(fc.name)*2.2/fc.dist,0,1)*0.18:0;
-        // Constant base prominence: the sky stays as subtle fully zoomed out
-        // as it is in the mid view — no zoom flood. Only sun glare and
-        // focused-planet coverage modulate it (parallax supplies the motion).
-        const starI=0.92*(1-0.85*glare)*(1-occl);
+        // Inside the solar system the stars sit DIM in the background so
+        // they never compete with solar objects. They only reach full
+        // brightness once Pluto's entire orbit fits in view (camDist ≳ 3500
+        // units); zooming in from there, the fade begins as Pluto's orbit
+        // approaches the edge of the frame (~1200 units) and bottoms out at
+        // a faint baseline for every closer view.
+        const zoomFade=clamp((camDist-1200)/2300,0,1);
+        const starI=(0.35+0.65*zoomFade)*(1-0.85*glare)*(1-occl);
         for(const m2 of skyMats) m2.opacity=((m2 as any).userData.baseOp||1)*starI;
       }
       // asteroid tumble clock (wall time, so it stays smooth at any sim speed)
