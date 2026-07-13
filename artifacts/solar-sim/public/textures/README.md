@@ -1,5 +1,22 @@
 # Bundled planet textures
 
+## uranus_4k.jpg
+
+Uranus global map (4096×2048 equirectangular) in true color — a composite.
+
+- **Base:** the Celestia project's 4k Uranus texture
+  (<https://github.com/CelestiaProject/CelestiaContent>, `textures/hires/uranus.jpg`),
+  which follows the true-color, haze-muted pale-cyan appearance (Voyager 2 /
+  modern reprocessing) with the grey north polar hood.
+- **Composited upper-atmosphere features** (guided by HST and Keck imagery,
+  kept muted beneath the haze as in reality): subtle zonal bands, a polar
+  collar, discrete bright methane storm clouds at mid-latitudes, and the
+  Uranus Dark Spot (the dark vortex imaged by Hubble in 2006, ~27°N). These
+  features are representative composites, not a single-epoch photograph —
+  no true-color full-map photo of them exists.
+- Tool: `artifacts/solar-sim/texture-tools/composite-uranus-map.cjs`.
+- The ring system is separate geometry in the app and is unaffected.
+
 ## neptune_4k.jpg
 
 Neptune global map (4096×2048 equirectangular) in modern TRUE color.

@@ -65,6 +65,16 @@ fracture troughs) — the 1k CDN plutomap was far below the user's requested qua
 **Why:** real textures only beat procedural when they carry real detail; for featureless gas
 giants a tiny photo is worse than a crafted procedural.
 
+## Uranus is a TRUE-COLOR composite now (pale haze-muted cyan) — not saturated teal
+Uranus works like Pluto/Neptune: bundled real 4k map (`public/textures/uranus_4k.jpg`, from
+CelestiaContent `textures/hires/uranus.jpg`) composited by
+`texture-tools/composite-uranus-map.cjs` with muted upper-atmosphere features the user asked
+for: subtle zonal bands, polar collar, bright methane clouds, and the 2006 HST Uranus Dark Spot
+(~27°N). Rendered with the shared LIMB ShaderMaterial; uranusProc fallback retinted to the same
+pale palette. The old "saturated teal-cyan (~#0a9ac0)" guidance is superseded for Uranus's own
+map. Rings and the 97.77° obliquity tilt are untouched — the ring is separate child geometry,
+so material swaps don't affect it.
+
 ## Neptune is TRUE-COLOR now (pale milky cyan) — not cobalt
 The user asked for the "current true color best guess" Neptune (the modern reprocessing of
 Voyager 2 data — pale milky cyan like Uranus) with the Great Dark Spot, Small Dark Spot,
