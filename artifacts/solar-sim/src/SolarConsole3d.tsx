@@ -218,13 +218,10 @@ const LIT_FRAG = /* glsl */`
 // exactly how the New Horizons full-disk portrait looks.
 const LIMB_VERT = /* glsl */`
   varying vec2 vUv;
-  varying vec3 vNormal;
-  varying vec3 vViewDir;
+  varying vec3 vVNormal;
   void main(){
     vUv = uv;
-    vNormal = normalize((modelMatrix * vec4(normal, 0.0)).xyz);
-    vec3 wp = (modelMatrix * vec4(position, 1.0)).xyz;
-    vViewDir = cameraPosition - wp;
+    vVNormal = normalMatrix * normal; // view-space normal
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
 `;
@@ -233,12 +230,18 @@ const LIMB_FRAG = /* glsl */`
   uniform sampler2D uMap;
   uniform float uDim;
   varying vec2 vUv;
-  varying vec3 vNormal;
-  varying vec3 vViewDir;
+  varying vec3 vVNormal;
   void main(){
-    float mu = clamp(dot(normalize(vNormal), normalize(vViewDir)), 0.0, 1.0);
-    float limb = mix(0.45, 1.0, pow(mu, 0.55));
-    vec3 col = texture2D(uMap, vUv).rgb * limb * uDim;
+    vec3 n = normalize(vVNormal);
+    // Soft key light from the viewer's upper-left (view space), like the
+    // New Horizons full-disk portrait: the disk rolls off into shadow toward
+    // the lower-right limb instead of shading uniformly like a full moon.
+    vec3 lightDir = normalize(vec3(-0.48, 0.40, 0.62));
+    float day = smoothstep(-0.05, 0.60, dot(n, lightDir));
+    // Gentle radial limb darkening on top; n.z is the facing-camera term.
+    float limb = mix(0.60, 1.0, pow(clamp(n.z, 0.0, 1.0), 0.5));
+    float shade = (0.12 + 0.88 * day) * limb;
+    vec3 col = texture2D(uMap, vUv).rgb * shade * uDim;
     gl_FragColor = vec4(col, 1.0);
     // Match MeshBasicMaterial's output pipeline (ACES tone map + sRGB encode)
     // so the authored texture colors survive; without these the raw linear
@@ -409,6 +412,9 @@ export default function SolarHarmonics3D(){
         const url = urls[idx++];
         tl.load(url, (tex) => {
           (tex as any).colorSpace = THREE.SRGBColorSpace;
+          // Max anisotropy keeps surface detail sharp at glancing angles
+          // (without it the poles/limb of a focused planet go mushy).
+          tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
           tex.needsUpdate = true;
           track(tex);
           onOk(tex);
@@ -994,11 +1000,19 @@ export default function SolarHarmonics3D(){
           uniforms: earthShaderUniforms,
         });
       } else if (p === 'Pluto') {
-        // New Horizons Pluto: high-res procedural map + view-based limb
-        // darkening so the tiny disk reads as a shaded sphere at any zoom.
-        // uDim plays the role of the old MeshBasicMaterial 0.90 dim factor.
-        const uniforms = { uMap: { value: plutoProc() }, uDim: { value: 0.95 } };
+        // New Horizons Pluto: the real MVIC global mosaic (NASA/JHUAPL/SwRI,
+        // via the Celestia project's 4k assembly), color-graded to match the
+        // enhanced-color full-disk portrait and bundled same-origin under
+        // public/textures/ (CDN texture hosts fail CORS — bundling avoids
+        // that entirely). The procedural map paints the disk instantly while
+        // the 1.5MB real map streams in. View-based limb darkening makes the
+        // disk read as a lit sphere at any zoom.
+        // uDim 1.0: the directional shading in LIMB_FRAG already averages the
+        // disk well below full brightness, so no extra dim factor on top.
+        const uniforms = { uMap: { value: plutoProc() }, uDim: { value: 1.0 } };
         planetMat = new THREE.ShaderMaterial({ vertexShader: LIMB_VERT, fragmentShader: LIMB_FRAG, uniforms });
+        const base = (import.meta as any).env?.BASE_URL ?? '/';
+        loadFirst([`${base}textures/pluto_4k.jpg`], (tex) => { uniforms.uMap.value = tex; });
       } else if (isOuter) {
         const fb = p === 'Saturn' ? saturnBodyProc()
           : p === 'Uranus' ? uranusProc()
@@ -1025,7 +1039,9 @@ export default function SolarHarmonics3D(){
         }
       }
 
-      const m = new THREE.Mesh(new THREE.SphereGeometry(R[p],64,48), planetMat);
+      // 128×64 keeps the silhouette circular even when a focused planet
+      // fills the whole viewport (64 segments showed faceting on the limb).
+      const m = new THREE.Mesh(new THREE.SphereGeometry(R[p],128,64), planetMat);
       m.name = p;
       sceneFrom(p, m.position);
       mesh[p] = m;
