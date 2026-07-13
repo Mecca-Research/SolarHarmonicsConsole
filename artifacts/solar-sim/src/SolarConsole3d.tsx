@@ -150,7 +150,7 @@ const BODY_INFO: Record<BodyName, {kind:string; blurb:string; stats:[string,stri
   },
   Neptune: {
     kind: 'Ice Giant',
-    blurb: 'The most distant planet, a deep cobalt world discovered in 1846 by mathematics before it was seen through a telescope. Despite receiving the least sunlight, Neptune hosts the fastest winds in the solar system — supersonic jets reaching 2,100 km/h.',
+    blurb: 'The most distant planet, discovered in 1846 by mathematics before it was seen through a telescope. In true color it is a pale, milky blue-green — much like Uranus — streaked by methane cirrus and dark storms like the Great Dark Spot. Despite receiving the least sunlight, Neptune hosts the fastest winds in the solar system — supersonic jets reaching 2,100 km/h.',
     stats: [
       ['Diameter', '49,244 km (3.9 × Earth)'],
       ['Mass', '1.02 × 10²⁶ kg (17 × Earth)'],
@@ -768,17 +768,19 @@ export default function SolarHarmonics3D(){
     };
 
     const neptuneProc = () => {
-      // Voyager-2 portrait palette: vivid azure mid-latitudes over deep cobalt,
-      // the Great Dark Spot with its bright companion cirrus, the "Scooter",
-      // and Dark Spot 2 with a bright core.
+      // TRUE-COLOR palette (the modern reprocessing of the Voyager 2 data —
+      // pale milky cyan, not the classic saturated cobalt): the Great Dark
+      // Spot with its bright companion cirrus, the "Scooter", and Dark Spot 2
+      // with a bright core. This is the instant fallback while the bundled
+      // real map streams in, so it must match that map's palette.
       const w=1024,h=512,c=document.createElement('canvas');c.width=w;c.height=h;const x=c.getContext('2d')!;
       const rnd=mkRng(84630);
       const n1=mkNoise(101,7), n2=mkNoise(113,10);
       const bw=256,bh=128,bc=document.createElement('canvas');bc.width=bw;bc.height=bh;const bx=bc.getContext('2d')!;
       const img=bx.createImageData(bw,bh);
       const stops:[number,[number,number,number]][]= [
-        [0.00,[19,26,84]],[0.18,[34,52,152]],[0.36,[46,74,202]],[0.50,[56,92,222]],
-        [0.62,[44,70,196]],[0.80,[30,46,142]],[1.00,[16,22,74]],
+        [0.00,[176,200,214]],[0.18,[193,215,227]],[0.36,[185,209,223]],[0.50,[171,197,213]],
+        [0.62,[165,191,209]],[0.80,[159,185,203]],[1.00,[147,173,193]],
       ];
       const at=(v:number):[number,number,number]=>{
         for(let s2=0;s2<stops.length-1;s2++){const [v0,c0]=stops[s2],[v1,c1]=stops[s2+1];
@@ -798,7 +800,7 @@ export default function SolarHarmonics3D(){
         const cx2=w*0.40, cy2=h*0.62, rx=w*0.062, ry=h*0.055;
         x.save();x.translate(cx2,cy2);x.scale(rx,ry);
         const rg=x.createRadialGradient(0,0,0,0,0,1);
-        rg.addColorStop(0,'rgba(13,22,74,0.95)');rg.addColorStop(0.55,'rgba(16,26,84,0.85)');rg.addColorStop(1,'rgba(16,26,84,0)');
+        rg.addColorStop(0,'rgba(112,138,160,0.85)');rg.addColorStop(0.55,'rgba(122,148,170,0.7)');rg.addColorStop(1,'rgba(122,148,170,0)');
         x.fillStyle=rg;x.beginPath();x.arc(0,0,1,0,Math.PI*2);x.fill();x.restore();
         for(let k2=0;k2<26;k2++){
           const th=Math.PI*(0.15+0.7*(k2/26));
@@ -817,7 +819,7 @@ export default function SolarHarmonics3D(){
         const cx2=w*0.68, cy2=h*0.80;
         x.save();x.translate(cx2,cy2);x.scale(w*0.026,h*0.020);
         const rg=x.createRadialGradient(0,0,0,0,0,1);
-        rg.addColorStop(0,'rgba(14,22,72,0.85)');rg.addColorStop(1,'rgba(14,22,72,0)');
+        rg.addColorStop(0,'rgba(116,142,164,0.75)');rg.addColorStop(1,'rgba(116,142,164,0)');
         x.fillStyle=rg;x.beginPath();x.arc(0,0,1,0,Math.PI*2);x.fill();x.restore();
         const rg2=x.createRadialGradient(cx2,cy2,0,cx2,cy2,w*0.008);
         rg2.addColorStop(0,'rgba(240,246,255,0.75)');rg2.addColorStop(1,'rgba(240,246,255,0)');
@@ -999,24 +1001,25 @@ export default function SolarHarmonics3D(){
           fragmentShader: EARTH_FRAG,
           uniforms: earthShaderUniforms,
         });
-      } else if (p === 'Pluto') {
-        // New Horizons Pluto: the real MVIC global mosaic (NASA/JHUAPL/SwRI,
-        // via the Celestia project's 4k assembly), color-graded to match the
-        // enhanced-color full-disk portrait and bundled same-origin under
+      } else if (p === 'Pluto' || p === 'Neptune') {
+        // Real bundled 4k maps (via the Celestia project's assemblies of
+        // NASA data): Pluto is the New Horizons MVIC global mosaic graded to
+        // the enhanced-color portrait; Neptune is the Voyager 2 map graded to
+        // the modern TRUE-COLOR reprocessing (pale milky cyan, Great/Small
+        // Dark Spots, Scooter, cirrus). Bundled same-origin under
         // public/textures/ (CDN texture hosts fail CORS — bundling avoids
-        // that entirely). The procedural map paints the disk instantly while
-        // the 1.5MB real map streams in. View-based limb darkening makes the
+        // that entirely); the procedural map paints the disk instantly while
+        // the real map streams in. LIMB_FRAG's view-space key light makes the
         // disk read as a lit sphere at any zoom.
         // uDim 1.0: the directional shading in LIMB_FRAG already averages the
         // disk well below full brightness, so no extra dim factor on top.
-        const uniforms = { uMap: { value: plutoProc() }, uDim: { value: 1.0 } };
+        const uniforms = { uMap: { value: p === 'Pluto' ? plutoProc() : neptuneProc() }, uDim: { value: 1.0 } };
         planetMat = new THREE.ShaderMaterial({ vertexShader: LIMB_VERT, fragmentShader: LIMB_FRAG, uniforms });
         const base = (import.meta as any).env?.BASE_URL ?? '/';
-        loadFirst([`${base}textures/pluto_4k.jpg`], (tex) => { uniforms.uMap.value = tex; });
+        loadFirst([`${base}textures/${p.toLowerCase()}_4k.jpg`], (tex) => { uniforms.uMap.value = tex; });
       } else if (isOuter) {
         const fb = p === 'Saturn' ? saturnBodyProc()
           : p === 'Uranus' ? uranusProc()
-          : p === 'Neptune' ? neptuneProc()
           : fallbackTex(p);
         const basicMat = new THREE.MeshBasicMaterial({ map: fb });
         basicMat.color.setScalar(0.82); // outer planets dimmer (far from Sun)

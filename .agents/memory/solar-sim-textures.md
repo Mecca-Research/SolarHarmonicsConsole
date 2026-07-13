@@ -65,6 +65,17 @@ fracture troughs) — the 1k CDN plutomap was far below the user's requested qua
 **Why:** real textures only beat procedural when they carry real detail; for featureless gas
 giants a tiny photo is worse than a crafted procedural.
 
+## Neptune is TRUE-COLOR now (pale milky cyan) — not cobalt
+The user asked for the "current true color best guess" Neptune (the modern reprocessing of
+Voyager 2 data — pale milky cyan like Uranus) with the Great Dark Spot, Small Dark Spot,
+Scooter and cirrus visible. Neptune now works exactly like Pluto: bundled real 4k map
+(`public/textures/neptune_4k.jpg`, from CelestiaContent `textures/hires/neptune.jpg`, graded by
+`texture-tools/grade-neptune-map.cjs`) loaded over the neptuneProc() fallback, rendered with the
+shared LIMB ShaderMaterial (uDim 1.0). neptuneProc's palette was retinted to the same pale
+true-color so the fallback doesn't flash cobalt. Do NOT restore the deep-cobalt palette
+(~#3a53d4) — the old "Neptune is deep cobalt (~#3a53d4)" guidance elsewhere in this file is
+superseded for Neptune's own map (it still describes the classic press-photo look).
+
 ## Pluto real map: bundle same-origin, don't revert to procedural
 The user rejected the procedural Pluto as "N64 graphics" and asked to match the NH
 enhanced-color portrait. Pluto now loads `public/textures/pluto_4k.jpg` — the REAL New

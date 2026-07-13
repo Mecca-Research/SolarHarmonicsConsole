@@ -1,5 +1,23 @@
 # Bundled planet textures
 
+## neptune_4k.jpg
+
+Neptune global map (4096×2048 equirectangular) in modern TRUE color.
+
+- **Source imagery:** NASA/JPL — Voyager 2 (1989 flyby), the only close-up
+  imagery of Neptune that exists.
+- **Map assembly:** the Celestia project's 4k Neptune texture
+  (<https://github.com/CelestiaProject/CelestiaContent>, `textures/hires/neptune.jpg`),
+  which already reflects the modern true-color reprocessing (pale milky cyan,
+  not the saturated cobalt of the classic press images) and carries the
+  Great Dark Spot with companion clouds, the Small Dark Spot (D2), the
+  "Scooter", and cirrus streaks.
+- **Processing:** graded for this app — slight green shift toward the
+  true-color portrait, high-pivot S-curve to deepen the dark spots, unsharp
+  on the bands/cirrus, and subtle horizontal wind-streak turbulence for
+  close-zoom definition. Tool:
+  `artifacts/solar-sim/texture-tools/grade-neptune-map.cjs`.
+
 ## pluto_4k.jpg
 
 Real New Horizons global mosaic of Pluto (4096×2048 equirectangular).
