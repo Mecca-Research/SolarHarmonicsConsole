@@ -136,7 +136,7 @@ const BODY_INFO: Record<BodyName, {kind:string; blurb:string; stats:[string,stri
   },
   Uranus: {
     kind: 'Ice Giant',
-    blurb: 'Uranus rolls around the Sun on its side — tipped almost 98°, likely by an ancient giant impact — so its poles take turns facing the Sun for 42 years at a time. Methane in its atmosphere gives it a serene teal color, and it has the coldest atmosphere of any planet.',
+    blurb: 'Uranus rolls around the Sun on its side — tipped almost 98°, likely by an ancient giant impact — so its poles take turns facing the Sun for 42 years at a time. In true color a shroud of haze above its methane clouds mutes it to a pale, milky cyan, hiding faint bands, bright storm clouds, and the occasional dark spot. It has the coldest atmosphere of any planet.',
     stats: [
       ['Diameter', '50,724 km (4 × Earth)'],
       ['Mass', '8.68 × 10²⁵ kg (14.5 × Earth)'],
@@ -737,7 +737,8 @@ export default function SolarHarmonics3D(){
     };
 
     const uranusProc = () => {
-      // Keck palette, silky smooth: a pure latitude gradient with a gently
+      // TRUE-COLOR palette (haze-muted pale cyan, matching the bundled real
+      // map this falls back for): a pure latitude gradient with a gently
       // glowing polar collar and a couple of faint methane clouds. No bands —
       // Uranus is nearly featureless, and drawn stripes read as artifacts.
       const w=1024,h=512,c=document.createElement('canvas');c.width=w;c.height=h;const x=c.getContext('2d')!;
@@ -747,12 +748,12 @@ export default function SolarHarmonics3D(){
       for(let j=0;j<bh;j++)for(let i=0;i<bw;i++){
         const u=i/bw, v=j/bh;
         const kk=Math.sin(v*Math.PI); // 0 at poles, 1 at equator
-        let r=lerp(24,50,kk), g2=lerp(120,180,kk), b=lerp(144,204,kk);
+        let r=lerp(197,173,kk), g2=lerp(207,198,kk), b=lerp(210,206,kk);
         // soft bright collar near the south pole + gentle polar cap glow
         const collar=Math.exp(-Math.pow((v-0.80)/0.085,2))*0.30;
         const cap=Math.exp(-Math.pow((v-1.0)/0.12,2))*0.22;
-        const k3=Math.min(1,collar+cap);
-        r=lerp(r,205,k3); g2=lerp(g2,244,k3); b=lerp(b,248,k3);
+        const k3=Math.min(1,collar+cap)*0.5;
+        r=lerp(r,224,k3); g2=lerp(g2,233,k3); b=lerp(b,236,k3);
         const m2=1+n1(u,v)*0.018;
         const o=4*(j*bw+i); img.data[o]=clamp(r*m2,0,255); img.data[o+1]=clamp(g2*m2,0,255); img.data[o+2]=clamp(b*m2,0,255); img.data[o+3]=255;
       }
@@ -1001,7 +1002,7 @@ export default function SolarHarmonics3D(){
           fragmentShader: EARTH_FRAG,
           uniforms: earthShaderUniforms,
         });
-      } else if (p === 'Pluto' || p === 'Neptune') {
+      } else if (p === 'Pluto' || p === 'Neptune' || p === 'Uranus') {
         // Real bundled 4k maps (via the Celestia project's assemblies of
         // NASA data): Pluto is the New Horizons MVIC global mosaic graded to
         // the enhanced-color portrait; Neptune is the Voyager 2 map graded to
@@ -1013,14 +1014,12 @@ export default function SolarHarmonics3D(){
         // disk read as a lit sphere at any zoom.
         // uDim 1.0: the directional shading in LIMB_FRAG already averages the
         // disk well below full brightness, so no extra dim factor on top.
-        const uniforms = { uMap: { value: p === 'Pluto' ? plutoProc() : neptuneProc() }, uDim: { value: 1.0 } };
+        const uniforms = { uMap: { value: p === 'Pluto' ? plutoProc() : p === 'Neptune' ? neptuneProc() : uranusProc() }, uDim: { value: 1.0 } };
         planetMat = new THREE.ShaderMaterial({ vertexShader: LIMB_VERT, fragmentShader: LIMB_FRAG, uniforms });
         const base = (import.meta as any).env?.BASE_URL ?? '/';
         loadFirst([`${base}textures/${p.toLowerCase()}_4k.jpg`], (tex) => { uniforms.uMap.value = tex; });
       } else if (isOuter) {
-        const fb = p === 'Saturn' ? saturnBodyProc()
-          : p === 'Uranus' ? uranusProc()
-          : fallbackTex(p);
+        const fb = p === 'Saturn' ? saturnBodyProc() : fallbackTex(p);
         const basicMat = new THREE.MeshBasicMaterial({ map: fb });
         basicMat.color.setScalar(0.82); // outer planets dimmer (far from Sun)
         planetMat = basicMat;
