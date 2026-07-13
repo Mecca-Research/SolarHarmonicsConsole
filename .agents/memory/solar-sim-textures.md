@@ -18,10 +18,11 @@ canvas textures as a last-resort fallback.
   `access-control-allow-origin: *`. Verified working base:
   `https://cdn.jsdelivr.net/gh/jeromeetienne/threex.planets@master/images/`
   with files: `venusmap.jpg`, `marsmap1k.jpg`, `jupitermap.jpg` (the three used).
-  Mercury, Saturn (body AND rings), Uranus, Neptune, Pluto are hand-built procedural maps modeled
-  on NASA reference photos (MESSENGER enhanced color / Cassini portrait / Keck / Voyager 2 /
-  New Horizons) — the CDN versions of those looked worse and must NOT be re-added as overrides,
-  since `loadFirst` would clobber the procedurals asynchronously. Venus is the exception: the USER
+  Mercury, Saturn (body AND rings), Uranus, Neptune are hand-built procedural maps modeled
+  on NASA reference photos (MESSENGER enhanced color / Cassini portrait / Keck / Voyager 2)
+  — the CDN versions of those looked worse and must NOT be re-added as overrides,
+  since `loadFirst` would clobber the procedurals asynchronously. Pluto uses a BUNDLED
+  real New Horizons map (see "Pluto real map" section below). Venus is the exception: the USER
   PREFERS the classic creamy cloud-deck look (CDN venusmap over a matching cloudy procedural
   fallback), NOT the Magellan radar surface — don't bring the orange radar Venus back.
 
@@ -63,6 +64,28 @@ fully procedural now (New Horizons look: Sputnik heart, Cthulhu Macula, gold nor
 fracture troughs) — the 1k CDN plutomap was far below the user's requested quality.
 **Why:** real textures only beat procedural when they carry real detail; for featureless gas
 giants a tiny photo is worse than a crafted procedural.
+
+## Pluto real map: bundle same-origin, don't revert to procedural
+The user rejected the procedural Pluto as "N64 graphics" and asked to match the NH
+enhanced-color portrait. Pluto now loads `public/textures/pluto_4k.jpg` — the REAL New
+Horizons 4k mosaic (CelestiaContent `textures/hires/pluto.jpg`, NASA/JHUAPL/SwRI data),
+color-graded by `texture-tools/grade-pluto-map.cjs` (params in its header) because the raw
+Celestia map is washed-out beige. It loads via `loadFirst([BASE_URL + 'textures/pluto_4k.jpg'])`
+over the plutoProc() fallback. **Bundling in public/ serves same-origin and sidesteps the CORS
+problem entirely** — this is the preferred pattern for any future real-map upgrade (deploy
+copies dist/public → repo root, so the file ships with the site). Do NOT go back to a
+procedural-only Pluto and do NOT try CDN URLs for it.
+- LIMB shader now shades with a view-space key light from the viewer's upper-left
+  (`normalize(vec3(-0.48,0.40,0.62))`, smoothstep(-0.05,0.60) day term, ambient 0.12,
+  limb mix(0.60,1.0,pow(n.z,0.5))), matching the NH portrait's terminator. uDim is 1.0 now;
+  the directional term does the dimming. Radial-only limb darkening looked like a flat full moon.
+- `loadFirst` sets `tex.anisotropy = renderer.capabilities.getMaxAnisotropy()` on every
+  loaded texture, and planet spheres are SphereGeometry(R,128,64) — 64 segments faceted the
+  limb of a focused planet. Keep both.
+- Only GitHub domains are reachable from the remote-session sandbox (raw.githubusercontent.com
+  works; NASA/USGS/wikimedia/jsdelivr are proxy-blocked, and in-browser CDN loads fail there
+  too, so planets fall back to procedurals in sandbox screenshots — that's a sandbox artifact,
+  not a production bug).
 
 ## Custom ShaderMaterial output MUST end with the tonemapping/colorspace chunks
 Pluto's limb-darkening `ShaderMaterial` initially rendered the authored texture far too dark:
@@ -124,9 +147,9 @@ faint C ring → bright dense B ring → Cassini Division gap (~u 0.70–0.77) �
 Outer planets use `MeshBasicMaterial` (unlit) so they render full-bright and look self-illuminated
 ("as bright as the Sun"). To dim without switching to a lit material (the scene PointLight is ~0 at
 those distances), set `material.color.setScalar(k)` with k<1 — it multiplies the map, including any
-CDN texture swapped in asynchronously later. ~0.82 ≈ 18% dimmer. Pluto now has its own
-limb-darkening ShaderMaterial with a `uDim` uniform (0.95, kept lighter than 0.82) so the
-hard-won visibility fix above isn't undone.
+CDN texture swapped in asynchronously later. ~0.82 ≈ 18% dimmer. Pluto's ShaderMaterial has a
+`uDim` uniform, now 1.0 — its directional key-light shading (see "Pluto real map") provides
+the dimming instead.
 
 ## Making a ring look vertical (Uranus) — tilt the whole body, not just the ring
 A planet's rings appear vertical because the planet is tipped on its side (Uranus obliquity ~98°).
