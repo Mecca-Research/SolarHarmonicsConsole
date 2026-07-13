@@ -71,7 +71,11 @@ enhanced-color portrait. Pluto now loads `public/textures/pluto_4k.jpg` — the 
 Horizons 4k mosaic (CelestiaContent `textures/hires/pluto.jpg`, NASA/JHUAPL/SwRI data),
 color-graded by `texture-tools/grade-pluto-map.cjs` (params in its header) because the raw
 Celestia map is washed-out beige. It loads via `loadFirst([BASE_URL + 'textures/pluto_4k.jpg'])`
-over the plutoProc() fallback. **Bundling in public/ serves same-origin and sidesteps the CORS
+over the plutoProc() fallback. The anti-encounter hemisphere of the real mosaic is
+genuinely blurry (NH never imaged it up close — the user flagged it as "blurry mess");
+it's filled by `texture-tools/enhance-pluto-farside.cjs`, which transplants real
+high-pass detail patches from the sharp hemisphere, class-matched by terrain type
+(params in its header). Re-run grade → enhance if the texture is ever regenerated. **Bundling in public/ serves same-origin and sidesteps the CORS
 problem entirely** — this is the preferred pattern for any future real-map upgrade (deploy
 copies dist/public → repo root, so the file ships with the site). Do NOT go back to a
 procedural-only Pluto and do NOT try CDN URLs for it.
