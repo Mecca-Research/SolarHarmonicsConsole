@@ -1,5 +1,41 @@
 # Bundled planet textures
 
+## jupiter_4k.jpg
+
+Jupiter global map (4096×2048 equirectangular) in true color.
+
+- **Source imagery:** NASA/JPL/SSI — Cassini flyby (2000) global cylindrical map.
+- **Map assembly:** the Celestia project's 4k Jupiter texture
+  (<https://github.com/CelestiaProject/CelestiaContent>, `textures/hires/jupiter.jpg`).
+- **Processing:** definition unsharp + slight warmth/saturation lift tuned for
+  the ACES pipeline (the muted true colors washed flat otherwise). Great Red
+  Spot, turbulent wake, white ovals and polar blue-grey are all real Cassini
+  structure. Tool: `texture-tools/grade-jupiter-mars-venus.cjs`.
+
+## mars_4k.jpg
+
+Mars global map (4096×2048 equirectangular) in true color.
+
+- **Source imagery:** NASA — Viking / Mars Global Surveyor color mosaic.
+- **Map assembly:** the Celestia project's 4k Mars texture
+  (<https://github.com/CelestiaProject/CelestiaContent>, `textures/hires/mars.jpg`).
+- **Processing:** definition unsharp + gentle warmth lift; polar caps, dark
+  basalt provinces (Syrtis Major etc.), Tharsis/Olympus Mons and Hellas are
+  real map content. Tool: `texture-tools/grade-jupiter-mars-venus.cjs`.
+
+## venus_4k.jpg
+
+Venus cloud-deck map (4096×2048 equirectangular) in true color.
+
+- **Source imagery:** Mariner 10 / Pioneer-era cloud imagery as assembled by
+  the Celestia project (`textures/medres/venus-clouds.jpg`).
+- **Processing:** upscaled 2k→4k (Lanczos), real streak structure amplified
+  via large-radius unsharp, faint fine turbulence added for close-zoom
+  definition, gentle cream tint. True-color Venus is this pale, nearly
+  featureless cream — NOT the orange Magellan radar surface (that's a
+  different dataset entirely and deliberately not used here).
+  Tool: `texture-tools/grade-jupiter-mars-venus.cjs`.
+
 ## saturn_4k.jpg
 
 Saturn global map (4096×2048 equirectangular) in true color.
