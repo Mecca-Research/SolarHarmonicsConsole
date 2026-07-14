@@ -1,5 +1,35 @@
 # Bundled planet textures
 
+## saturn_4k.jpg
+
+Saturn global map (4096×2048 equirectangular) in true color.
+
+- **Source imagery:** NASA/JPL/SSI — Cassini (2004–2017).
+- **Map assembly:** the Celestia project's 4k Saturn texture
+  (<https://github.com/CelestiaProject/CelestiaContent>, `textures/hires/saturn.jpg`).
+- **Processing:** graded for this app — band-definition unsharp, gentle
+  band-deepening S-curve + gamma tuned for the ACES render pipeline, subtle
+  wind-streak turbulence. Tool:
+  `artifacts/solar-sim/texture-tools/grade-saturn-map.cjs`.
+- The ring system is separate geometry in the app (procedural, modeled on the
+  Cassini portrait) and is unaffected.
+
+## mercury_4k.jpg
+
+Mercury global map (4096×2048 equirectangular) in MESSENGER enhanced color.
+
+- **Source imagery:** NASA/JHUAPL/Carnegie — MESSENGER MDIS global mosaic,
+  via the Celestia project's 4k grey Mercury texture
+  (<https://github.com/CelestiaProject/CelestiaContent>, `textures/hires/mercury.jpg`).
+- **Processing:** colorized toward the famous MDIS *enhanced-color* global
+  mosaic (true-color Mercury is nearly moon-grey): terrain classes derived
+  from the real geography (large-scale brightness + crater-ray energy) drive
+  the palette — indigo low-reflectance material, violet-grey midtones,
+  tan-orange high-reflectance plains, cyan-white fresh rays — plus pole-edge
+  cleanup of projection artifacts. The hues are representative of the
+  enhanced-color product, not true color. Tool:
+  `artifacts/solar-sim/texture-tools/colorize-mercury-map.cjs`.
+
 ## uranus_4k.jpg
 
 Uranus global map (4096×2048 equirectangular) in true color — a composite.

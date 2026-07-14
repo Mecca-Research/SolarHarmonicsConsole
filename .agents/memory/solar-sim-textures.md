@@ -65,6 +65,16 @@ fracture troughs) — the 1k CDN plutomap was far below the user's requested qua
 **Why:** real textures only beat procedural when they carry real detail; for featureless gas
 giants a tiny photo is worse than a crafted procedural.
 
+## Saturn + Mercury use bundled real maps now too (all five procedural planets upgraded)
+Saturn: bundled `public/textures/saturn_4k.jpg` (CelestiaContent hires, Cassini-based, graded by
+`texture-tools/grade-saturn-map.cjs`), rendered with the shared LIMB shader; saturnBodyProc stays
+as the fallback and the ring system/geometry is untouched. Mercury: bundled
+`public/textures/mercury_4k.jpg` — the real MESSENGER geography colorized to the MDIS
+ENHANCED-COLOR mosaic look (user's chosen reference; true color would be moon-grey) by
+`texture-tools/colorize-mercury-map.cjs`. Mercury stays on the inner-planet LIT day/night shader
+and loads the bundled map via its CDN_TEX_URLS entry (`TEX_BASE`/mercury_4k.jpg). The only planet
+still on a runtime CDN photo map is Jupiter (+ Venus clouds, Mars, Earth).
+
 ## Uranus is a TRUE-COLOR composite now (pale haze-muted cyan) — not saturated teal
 Uranus works like Pluto/Neptune: bundled real 4k map (`public/textures/uranus_4k.jpg`, from
 CelestiaContent `textures/hires/uranus.jpg`) composited by

@@ -14,12 +14,15 @@ const TEX_CDN = 'https://www.solarsystemscope.com/textures/download';
 const GLOBE_CDN = 'https://cdn.jsdelivr.net/npm/three-globe@2.34.0/example/img';
 const PLANET_CDN = 'https://cdn.jsdelivr.net/gh/jeromeetienne/threex.planets@master/images';
 
-// Mercury, Saturn, Uranus, Neptune and Pluto are hand-built procedural maps
-// modeled on NASA reference photos (MESSENGER enhanced color / Cassini /
-// Keck / Voyager 2 / New Horizons) — the tiny CDN maps looked worse, so they
-// must NOT override those procedurals. Venus uses the classic creamy
-// cloud-deck CDN map (with a matching cloudy procedural fallback).
+// Mercury, Saturn, Uranus, Neptune and Pluto load real 4k maps BUNDLED under
+// public/textures/ (same-origin — the CDN texture hosts fail CORS), each with
+// a palette-matched procedural fallback that paints instantly. The tiny CDN
+// maps for those bodies looked worse and must NOT be re-added. Venus uses the
+// classic creamy cloud-deck CDN map (with a matching cloudy procedural
+// fallback).
+const TEX_BASE = ((import.meta as any).env?.BASE_URL ?? '/') + 'textures';
 const CDN_TEX_URLS: Record<string, string[]> = {
+  Mercury: [`${TEX_BASE}/mercury_4k.jpg`],
   Venus:   [`${PLANET_CDN}/venusmap.jpg`],
   Mars:    [`${PLANET_CDN}/marsmap1k.jpg`],
   Jupiter: [`${PLANET_CDN}/jupitermap.jpg`],
@@ -55,7 +58,7 @@ const BODY_INFO: Record<BodyName, {kind:string; blurb:string; stats:[string,stri
   },
   Mercury: {
     kind: 'Terrestrial Planet',
-    blurb: 'The smallest planet and the closest to the Sun, Mercury is a cratered, airless world that looks much like our Moon. With almost no atmosphere to trap heat, it endures the most extreme temperature swings in the solar system — scorching days and frigid nights.',
+    blurb: 'The smallest planet and the closest to the Sun, Mercury is a cratered, airless world that looks much like our Moon. Shown in MESSENGER’s enhanced color, which exaggerates subtle mineral differences across its surface. With almost no atmosphere to trap heat, it endures the most extreme temperature swings in the solar system — scorching days and frigid nights.',
     stats: [
       ['Diameter', '4,879 km'],
       ['Mass', '3.30 × 10²³ kg'],
@@ -1002,7 +1005,7 @@ export default function SolarHarmonics3D(){
           fragmentShader: EARTH_FRAG,
           uniforms: earthShaderUniforms,
         });
-      } else if (p === 'Pluto' || p === 'Neptune' || p === 'Uranus') {
+      } else if (p === 'Pluto' || p === 'Neptune' || p === 'Uranus' || p === 'Saturn') {
         // Real bundled 4k maps (via the Celestia project's assemblies of
         // NASA data): Pluto is the New Horizons MVIC global mosaic graded to
         // the enhanced-color portrait; Neptune is the Voyager 2 map graded to
@@ -1014,12 +1017,11 @@ export default function SolarHarmonics3D(){
         // disk read as a lit sphere at any zoom.
         // uDim 1.0: the directional shading in LIMB_FRAG already averages the
         // disk well below full brightness, so no extra dim factor on top.
-        const uniforms = { uMap: { value: p === 'Pluto' ? plutoProc() : p === 'Neptune' ? neptuneProc() : uranusProc() }, uDim: { value: 1.0 } };
+        const uniforms = { uMap: { value: p === 'Pluto' ? plutoProc() : p === 'Neptune' ? neptuneProc() : p === 'Uranus' ? uranusProc() : saturnBodyProc() }, uDim: { value: 1.0 } };
         planetMat = new THREE.ShaderMaterial({ vertexShader: LIMB_VERT, fragmentShader: LIMB_FRAG, uniforms });
-        const base = (import.meta as any).env?.BASE_URL ?? '/';
-        loadFirst([`${base}textures/${p.toLowerCase()}_4k.jpg`], (tex) => { uniforms.uMap.value = tex; });
+        loadFirst([`${TEX_BASE}/${p.toLowerCase()}_4k.jpg`], (tex) => { uniforms.uMap.value = tex; });
       } else if (isOuter) {
-        const fb = p === 'Saturn' ? saturnBodyProc() : fallbackTex(p);
+        const fb = fallbackTex(p);
         const basicMat = new THREE.MeshBasicMaterial({ map: fb });
         basicMat.color.setScalar(0.82); // outer planets dimmer (far from Sun)
         planetMat = basicMat;
