@@ -65,6 +65,16 @@ fracture troughs) — the 1k CDN plutomap was far below the user's requested qua
 **Why:** real textures only beat procedural when they carry real detail; for featureless gas
 giants a tiny photo is worse than a crafted procedural.
 
+## Jupiter/Mars/Venus bundled too — EVERY planet except Earth is on bundled real 4k maps
+Jupiter (Cassini true color, GRS), Mars (Viking/MGS true color), Venus (TRUE-COLOR CREAM
+CLOUD DECK from CelestiaContent `textures/medres/venus-clouds.jpg` upscaled to 4k) — all graded
+by `texture-tools/grade-jupiter-mars-venus.cjs`. IMPORTANT DISCOVERY: the old Venus CDN entry
+(threex `venusmap.jpg`) is actually the ORANGE MAGELLAN RADAR SURFACE, not clouds — production
+had been showing exactly the look the user rejected. It is REMOVED from CDN_TEX_URLS; never
+re-add it. Jupiter moved into the OUTER_PLANETS LIMB-shader branch (the MeshBasicMaterial
+isOuter branch is gone entirely); Mars keeps its 1k CDN map only as a second fallback after the
+bundled 4k. Celestia's `textures/hires/venus.jpg` is ALSO the radar surface — don't use it.
+
 ## Saturn + Mercury use bundled real maps now too (all five procedural planets upgraded)
 Saturn: bundled `public/textures/saturn_4k.jpg` (CelestiaContent hires, Cassini-based, graded by
 `texture-tools/grade-saturn-map.cjs`), rendered with the shared LIMB shader; saturnBodyProc stays

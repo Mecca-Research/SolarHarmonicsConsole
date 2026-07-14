@@ -14,18 +14,19 @@ const TEX_CDN = 'https://www.solarsystemscope.com/textures/download';
 const GLOBE_CDN = 'https://cdn.jsdelivr.net/npm/three-globe@2.34.0/example/img';
 const PLANET_CDN = 'https://cdn.jsdelivr.net/gh/jeromeetienne/threex.planets@master/images';
 
-// Mercury, Saturn, Uranus, Neptune and Pluto load real 4k maps BUNDLED under
-// public/textures/ (same-origin — the CDN texture hosts fail CORS), each with
-// a palette-matched procedural fallback that paints instantly. The tiny CDN
-// maps for those bodies looked worse and must NOT be re-added. Venus uses the
-// classic creamy cloud-deck CDN map (with a matching cloudy procedural
-// fallback).
+// All planets except Earth load real 4k maps BUNDLED under public/textures/
+// (same-origin — the CDN texture hosts fail CORS), each with a
+// palette-matched procedural fallback that paints instantly. The tiny CDN
+// maps looked worse and must NOT be re-added (Mars keeps the 1k CDN map as a
+// last-resort second fallback only).
 const TEX_BASE = ((import.meta as any).env?.BASE_URL ?? '/') + 'textures';
 const CDN_TEX_URLS: Record<string, string[]> = {
   Mercury: [`${TEX_BASE}/mercury_4k.jpg`],
-  Venus:   [`${PLANET_CDN}/venusmap.jpg`],
-  Mars:    [`${PLANET_CDN}/marsmap1k.jpg`],
-  Jupiter: [`${PLANET_CDN}/jupitermap.jpg`],
+  // NOTE: the old Venus CDN entry (threex venusmap.jpg) is the ORANGE
+  // MAGELLAN RADAR SURFACE, not clouds — never re-add it. The bundled map is
+  // the true-color cream cloud deck the user asked for.
+  Venus:   [`${TEX_BASE}/venus_4k.jpg`],
+  Mars:    [`${TEX_BASE}/mars_4k.jpg`, `${PLANET_CDN}/marsmap1k.jpg`],
 };
 
 const OUTER_PLANETS = new Set(['Jupiter', 'Saturn', 'Uranus', 'Neptune', 'Pluto']);
@@ -997,7 +998,6 @@ export default function SolarHarmonics3D(){
 
     for(const p of PLANETS){
       let planetMat: THREE.Material;
-      const isOuter = OUTER_PLANETS.has(p);
 
       if (p === 'Earth') {
         planetMat = new THREE.ShaderMaterial({
@@ -1005,31 +1005,21 @@ export default function SolarHarmonics3D(){
           fragmentShader: EARTH_FRAG,
           uniforms: earthShaderUniforms,
         });
-      } else if (p === 'Pluto' || p === 'Neptune' || p === 'Uranus' || p === 'Saturn') {
-        // Real bundled 4k maps (via the Celestia project's assemblies of
-        // NASA data): Pluto is the New Horizons MVIC global mosaic graded to
-        // the enhanced-color portrait; Neptune is the Voyager 2 map graded to
-        // the modern TRUE-COLOR reprocessing (pale milky cyan, Great/Small
-        // Dark Spots, Scooter, cirrus). Bundled same-origin under
-        // public/textures/ (CDN texture hosts fail CORS — bundling avoids
-        // that entirely); the procedural map paints the disk instantly while
-        // the real map streams in. LIMB_FRAG's view-space key light makes the
-        // disk read as a lit sphere at any zoom.
+      } else if (OUTER_PLANETS.has(p)) {
+        // Outer planets: real bundled 4k maps (via the Celestia project's
+        // assemblies of NASA data — Cassini for Jupiter/Saturn, Voyager 2
+        // for Uranus/Neptune, New Horizons for Pluto), each graded to the
+        // modern true-color look (Pluto/Mercury use their enhanced-color
+        // references). Bundled same-origin under public/textures/ (CDN
+        // texture hosts fail CORS — bundling avoids that entirely); the
+        // procedural map paints the disk instantly while the real map
+        // streams in. LIMB_FRAG's view-space key light makes the disk read
+        // as a lit sphere at any zoom.
         // uDim 1.0: the directional shading in LIMB_FRAG already averages the
         // disk well below full brightness, so no extra dim factor on top.
-        const uniforms = { uMap: { value: p === 'Pluto' ? plutoProc() : p === 'Neptune' ? neptuneProc() : p === 'Uranus' ? uranusProc() : saturnBodyProc() }, uDim: { value: 1.0 } };
+        const uniforms = { uMap: { value: p === 'Pluto' ? plutoProc() : p === 'Neptune' ? neptuneProc() : p === 'Uranus' ? uranusProc() : p === 'Saturn' ? saturnBodyProc() : fallbackTex(p) }, uDim: { value: 1.0 } };
         planetMat = new THREE.ShaderMaterial({ vertexShader: LIMB_VERT, fragmentShader: LIMB_FRAG, uniforms });
         loadFirst([`${TEX_BASE}/${p.toLowerCase()}_4k.jpg`], (tex) => { uniforms.uMap.value = tex; });
-      } else if (isOuter) {
-        const fb = fallbackTex(p);
-        const basicMat = new THREE.MeshBasicMaterial({ map: fb });
-        basicMat.color.setScalar(0.82); // outer planets dimmer (far from Sun)
-        planetMat = basicMat;
-
-        const cdnUrls = CDN_TEX_URLS[p];
-        if (cdnUrls && cdnUrls.length > 0) {
-          loadFirst(cdnUrls, (tex) => { basicMat.map = tex; basicMat.needsUpdate = true; });
-        }
       } else {
         // Inner rocky planets: day/night terminator like Earth's — the
         // hemisphere facing away from the Sun falls into near-darkness.
